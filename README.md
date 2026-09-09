@@ -98,7 +98,14 @@ python tools/score_stocks.py            # 三期評分 + 五日加權
 python tools/publish.py                 # 明文 → 兩層鎖加密 → docs/
 python ../market-barometer/tools/verify_publish.py stock-research
 pytest -q
+
+# 排程：把上面這一串變成每天自己跑
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\register_tasks.ps1
 ```
+
+`register_tasks.ps1` 建兩班：`Research-Daily`（18:10 抓 15 檔）與 `Research-Publish`（22:45 發布）。後者呼叫 `tools/publish_and_push.ps1`：`publish.py` → 有變才 `git add -- docs` → commit → push → Actions 部署 Pages。它只動得到 `docs/` 底下那一份兩層鎖密文，每次都在 `%STOCKDATA_ROOT%\runlog\publish_push.log` 留一行。
+
+排在 22:45 是因為個股評分要吃三大法人，而 market-barometer 的籌碼補班在 22:30 —— **兩個 repo 的排程各自獨立註冊，不互相呼叫**：一邊掛掉不該把另一邊也拖下水。
 
 
 > ⚠️ **`conda activate` 在某些 PowerShell 環境會靜默失效。** 如果 shell 沒有被 `conda init` 過（作者這台就是），`conda activate barometer` 會回傳 exit 0 然後什麼都沒做 —— `python` 仍然指向 base，**不會有任何錯誤訊息**，直到後面某個套件找不到才爆出來。
@@ -142,9 +149,10 @@ python -m PyInstaller --clean --noconfirm packaging/research.spec
 發布憑證在 `%STOCKDATA_ROOT%\secrets\publish.json`，**不在這個 repo 裡，也不
 可以放進來** —— 這是 public repo，進了版控就撤不回來。
 
-⚠️ **這個站實質上是一層鎖。** 兩層鎖的外層 Key 與 market-barometer 的 Password
-有字串重疊，那邊任何一組流出，這邊的 Key 就跟著流出。所以安全性等於內層那兩個
-Password 的強度。放進來的東西要能承受萬一被看到。
+⚠️ **兩層鎖是真的兩層，撐著它的是一條紀律。** 外層 Key 與 market-barometer 的
+Password 有字串重疊，這是刻意的 —— 那邊只有一組 Password 會印在文章上給讀者，
+而那一組**不是**這邊的 Key。作者自用的那幾組一旦外流，這裡才會降級成一層，
+安全性只剩內層那兩個 Password 的強度。放進來的東西要能承受萬一被看到。
 
 ---
 

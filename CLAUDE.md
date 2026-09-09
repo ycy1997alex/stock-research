@@ -106,10 +106,18 @@ AppUserModelID 是 `alexyu.stock-research`，跟 market-barometer **刻意不同
 
 ## 安全性的實話
 
-⚠️ **這個站實質上是一層鎖。** 兩層鎖的外層 Key 與 market-barometer 的 Password 有字串重疊，那邊任何一組流出（它的密碼本來就要印在文章上給讀者用），這裡的外層 Key 就跟著流出。安全性等於內層那兩個 Password 的強度。
+⚠️ **兩層鎖是真的兩層，撐著它的是一條紀律。** 外層 Key 與 market-barometer 的 Password 有字串重疊，這是刻意的：那邊只有一組 Password 會印在文章上給讀者，而那一組**不是**這裡的 Key，讀者拿到它連外層都過不了。反過來說，作者自用的那幾組一旦以別的方式外流（截圖、口耳相傳），這裡就降級成一層，安全性只剩內層那兩個 Password 的強度。
 
 **「私有 ≠ 可以對外分享」。** 內容一次「傳給朋友看」，上面所有前提就失效。放進來的東西要能承受萬一被看到。
 
 ## Git
 
-**不要主動 commit / push。** commit 一律由作者發動。工作到了 commit 點就說一句，然後把指令印出來（`/git-commit`）—— **印出指令就是交付，執行是作者的事。**
+**`docs/` 由排程自動 commit + push；其他一律作者發動。**
+
+`tools/publish_and_push.ps1`（排程任務 `Research-Publish`，每天 22:45）跑完 `publish.py` 之後會自己 `git add -- docs` → commit → `git push origin HEAD`，push 進 master 就觸發 Actions 部署 Pages。這是刻意開的例外，撐著它的是三件事：
+
+1. **它動得到的只有 `docs/` 底下那一份密文** —— 而且這裡是**兩層鎖**，進 git 的東西連外層都要有 Key 才打得開。只 stage `docs/`，不用 `git add -A`、不用 `git add .`、永遠不用 `-f`（`-f` 會繞過 `.gitignore`，而 `secrets/`、`Key/` 正是靠它擋著）。
+2. **進來時 index 不是空的就中止。** 作者手上 staged 的東西，排程不碰、也不替他 reset 掉。
+3. **紅線由 `tests/test_publish_push.py` 守著**，不是靠自律 —— 自動 push 與手動 push 的差別就是沒有人在按 Enter 之前看一眼 diff。
+
+**其他任何檔案的 commit / push 仍然一律由作者發動。** 工作到了 commit 點就說一句，然後把指令印出來（`/git-commit`）—— **印出指令就是交付，執行是作者的事。**
