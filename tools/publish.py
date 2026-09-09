@@ -46,7 +46,7 @@ from research.render import page as rpage  # noqa: E402
 
 SITE = credentials.STOCK_RESEARCH
 TITLE = "stock-research"
-TAGLINE = "台美權值股的三期評分 —— 私人研究用，不對外分享"
+TAGLINE = "台美權值股的三期評分，私人研究用，不對外分享"
 DOCS = _HERE / "docs"
 
 
