@@ -73,6 +73,18 @@ def main(argv: list[str]) -> int:
         )
         rows_by_symbol[sym] = (scored, run_stock_scores.summarize_window(scored))
 
+    # 分數落地（§10，2026-09-18）。`run_daily.ps1` 的註解寫著「評分不在這裡跑，
+    # publish.py 產頁面的時候會自己算」—— 那句話是對的，缺的是後半句：算完要
+    # 存下來。原本只呼叫 score_series()（純函式），所以 score_history 的 stock
+    # scope 停在唯一一次手動跑 scores_stock 的 2026-09-04。
+    #
+    # 餵同一份籌碼資料，寫下來的分數才會跟頁面上的是同一個數字。
+    scores = run_stock_scores.run(
+        list(rows_by_symbol), chips_by_symbol=chips_by_symbol
+    )
+    print(f"分數  {scores.counts.get('symbols_ok', 0)} 檔寫進 score_history"
+          f"（run_id={scores.run_id}）")
+
     tabs = rpage.build_tabs(rows_by_symbol)
     # enforce_lint=False：這一側可以有建議（§2.1）
     html = base_page.render(
