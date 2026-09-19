@@ -49,7 +49,7 @@
 
 ```powershell
 $py = "C:\Users\Alex\anaconda3\envs\barometer\python.exe"
-$env:STOCKDATA_ROOT = "D:\Research\_stockdata"     # 與 market-barometer 共用同一個資料層
+$env:STOCKDATA_ROOT = "D:\Repo\_stockdata"         # 與 market-barometer 共用同一個資料層
 
 & $py -m pytest -q                                  # 測試
 & $py tools/fetch_stocks.py                         # 抓 15 檔
@@ -58,7 +58,7 @@ $env:STOCKDATA_ROOT = "D:\Research\_stockdata"     # 與 market-barometer 共用
 & $py ../market-barometer/tools/verify_publish.py stock-research
 
 # 桌面程式（唯讀顯示，一次網路都不打）
-$env:PYTHONPATH = "D:\Research\stock-research\src;D:\Research\market-barometer\src"
+$env:PYTHONPATH = "D:\Repo\stock-research\src;D:\Repo\market-barometer\src"
 & $py -m research.app.main
 
 # 打包

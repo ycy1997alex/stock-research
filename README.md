@@ -92,7 +92,7 @@ conda activate barometer
 pip install -e ../market-barometer      # 管線核心
 pip install -e ".[dev]"
 
-$env:STOCKDATA_ROOT = "D:\Research\_stockdata"
+$env:STOCKDATA_ROOT = "D:\Repo\_stockdata"
 python tools/fetch_stocks.py            # 抓 15 檔
 python tools/score_stocks.py            # 三期評分 + 五日加權
 python tools/publish.py                 # 明文 → 兩層鎖加密 → docs/
@@ -126,7 +126,7 @@ python -m research.app.main
 沒有 `pip install -e` 的話要自己給路徑（兩個 repo 的 `src` 都要）：
 
 ```powershell
-$env:PYTHONPATH = "D:\Research\stock-research\src;D:\Research\market-barometer\src"
+$env:PYTHONPATH = "D:\Repo\stock-research\src;D:\Repo\market-barometer\src"
 ```
 
 **這支程式一次網路都不打**，它只顯示上面那兩支 tools 寫好的分數。
@@ -172,7 +172,7 @@ Password 有字串重疊，這是刻意的 —— 那邊只有一組 Password �
 
 | 項目 | 值 |
 |---|---|
-| `STOCKDATA_ROOT` | 資料根目錄，**與 market-barometer 共用**，預設 `D:\Research\_stockdata` |
+| `STOCKDATA_ROOT` | 資料根目錄，**與 market-barometer 共用**，預設 `D:\Repo\_stockdata` |
 | 發布憑證 | `%STOCKDATA_ROOT%\secrets\publish.json` 的 `stock-research` 區塊（兩層鎖，2 × 2 = 4 組） |
 | 金鑰 | 這個 repo 不直接用任何外部金鑰；shioaji 與 FRED 由 `barometer` 那側處理 |
 

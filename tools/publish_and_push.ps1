@@ -27,7 +27,7 @@ $ErrorActionPreference = "Stop"
 # 的）插進 sys.path，資料層本來就是共用的。設在這裡只會多一份會過期的副本。
 $Python = "C:\Users\Alex\anaconda3\envs\barometer\python.exe"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$env:STOCKDATA_ROOT = "D:\Research\_stockdata"
+$env:STOCKDATA_ROOT = "D:\Repo\_stockdata"
 $env:PYTHONIOENCODING = "utf-8"
 
 # 排程跑的時候沒有人在看 stdout，所以這支自己留一份紀錄。

@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 
 $Python = "C:\Users\Alex\anaconda3\envs\barometer\python.exe"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$env:STOCKDATA_ROOT = "D:\Research\_stockdata"
+$env:STOCKDATA_ROOT = "D:\Repo\_stockdata"
 $env:PYTHONIOENCODING = "utf-8"
 
 # 這個 wrapper 自己的訊息一律用 ASCII —— 排程任務的 stdout 走系統 ACP（950），

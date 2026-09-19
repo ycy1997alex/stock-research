@@ -254,7 +254,7 @@ WM_DELETE_WINDOW → on_close()
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
-$env:PYTHONPATH = "D:\Research\stock-research\src;D:\Research\market-barometer\src"
+$env:PYTHONPATH = "D:\Repo\stock-research\src;D:\Repo\market-barometer\src"
 & $py -m PyInstaller --clean --noconfirm packaging/research.spec
 ```
 
