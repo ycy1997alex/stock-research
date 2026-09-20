@@ -14,6 +14,9 @@ import datetime as dt
 
 from barometer.datasources import twse_src
 from barometer.datasources.base import FetchError
+from barometer.domain.ports import StockChipRepository
+
+_FIELDS = ("foreign_net_shares", "trust_net_shares", "dealer_net_shares", "total_net_shares")
 
 
 def _code(symbol: str) -> str:
@@ -22,7 +25,7 @@ def _code(symbol: str) -> str:
 
 
 def net_shares_by_symbol(
-    symbols: list[str], dates: list[dt.date]
+    symbols: list[str], dates: list[dt.date], *, repo: StockChipRepository
 ) -> tuple[dict[str, list[float | None]], list[str]]:
     """回 (每檔的逐日買賣超, 沒抓到的日期說明)。
 
@@ -34,20 +37,23 @@ def net_shares_by_symbol(
     notes: list[str] = []
 
     for date in dates:
-        try:
-            rows = twse_src.fetch_t86(date)
-        except FetchError as exc:
-            notes.append(f"{date}: {exc}")
-            for s in symbols:
-                out[s].append(None)
-            continue
-
-        got = {
-            wanted[r["symbol"]]: r.get("total_net_shares")
-            for r in rows
-            if r["symbol"] in wanted
-        }
+        cached = repo.get_stock_chips(date, symbols)
+        if len(cached) != len(symbols):
+            try:
+                rows = twse_src.fetch_t86(date)
+            except FetchError as exc:
+                notes.append(f"{date}: {exc}")
+                for symbol in symbols:
+                    out[symbol].append(None)
+                continue
+            by_code = {row["symbol"]: row for row in rows if row["symbol"] in wanted}
+            payloads = {
+                symbol: {field: by_code.get(_code(symbol), {}).get(field) for field in _FIELDS}
+                for symbol in symbols
+            }
+            repo.put_stock_chips(date, payloads, dt.datetime.now())
+            cached = repo.get_stock_chips(date, symbols)
         for s in symbols:
-            out[s].append(got.get(s))
+            out[s].append(cached.get(s, {}).get("total_net_shares"))
 
     return out, notes

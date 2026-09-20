@@ -16,7 +16,9 @@ sys.path.insert(0, str(_HERE / "src"))
 sys.path.insert(0, str(_HERE.parent / "market-barometer" / "src"))
 
 from barometer.domain import windows  # noqa: E402
+from barometer import config as bconfig  # noqa: E402
 from barometer.storage import csv_audit  # noqa: E402
+from barometer.storage.sqlite_repo import SqliteRepo  # noqa: E402
 from research import config as rc  # noqa: E402
 from research.datasources import chips_tw  # noqa: E402
 from research.pipeline import run_stock_scores  # noqa: E402
@@ -33,7 +35,9 @@ def main() -> int:
     tw_bars = csv_audit.read_current(rc.TW_STOCKS[0])
     tw_days = windows.last_n_sessions([b.date for b in tw_bars], 5)
     print(f"抓 T86（台股五檔，{len(tw_days)} 天，一天一次全市場）…")
-    per_symbol, notes = chips_tw.net_shares_by_symbol(list(rc.TW_STOCKS), tw_days)
+    with SqliteRepo(bconfig.db_path()) as chips_repo:
+        chips_repo.init_schema()
+        per_symbol, notes = chips_tw.net_shares_by_symbol(list(rc.TW_STOCKS), tw_days, repo=chips_repo)
     for n in notes:
         print(f"  ! {n}")
     chips_by_symbol = {

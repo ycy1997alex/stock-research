@@ -38,6 +38,7 @@ from barometer.pipeline import publish_gate  # noqa: E402
 from barometer.pipeline import build_page  # noqa: E402
 from barometer.render import page as base_page  # noqa: E402
 from barometer.storage import csv_audit  # noqa: E402
+from barometer.storage.sqlite_repo import SqliteRepo  # noqa: E402
 
 from research import config as rc  # noqa: E402
 from research.datasources import chips_tw  # noqa: E402
@@ -58,7 +59,9 @@ def main(argv: list[str]) -> int:
     # 台股才有三大法人資料 —— 一天抓一次全市場，抽出要的那五檔（§6 規則 5）
     tw_bars = csv_audit.read_current(rc.TW_STOCKS[0])
     tw_days = windows.last_n_sessions([b.date for b in tw_bars], 5)
-    per_symbol, notes = chips_tw.net_shares_by_symbol(list(rc.TW_STOCKS), tw_days)
+    with SqliteRepo(config.db_path()) as chips_repo:
+        chips_repo.init_schema()
+        per_symbol, notes = chips_tw.net_shares_by_symbol(list(rc.TW_STOCKS), tw_days, repo=chips_repo)
     for n in notes:
         print(f"  ! {n}")
     chips_by_symbol = {s: dict(zip(tw_days, v)) for s, v in per_symbol.items()}
