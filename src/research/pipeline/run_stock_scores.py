@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from barometer.domain import weighting, windows
+from barometer.domain import freshness, weighting, windows
 from barometer.pipeline.runlog import RunLog
 from barometer.storage import csv_audit
 from barometer.storage.sqlite_repo import SqliteRepo
@@ -92,7 +92,9 @@ def run(
     window: int = WINDOW,
     chips_by_symbol: dict[str, dict[dt.date, float | None]] | None = None,
     price_version: str = "v1",
+    run_date: dt.date | None = None,
 ) -> RunLog:
+    run_date = run_date or dt.date.today()
     log = RunLog(task=task)
     bconfig.ensure_dirs()
     repo = SqliteRepo(bconfig.db_path())
@@ -105,6 +107,13 @@ def run(
                 log.count("no_data")
                 log.note(f"{symbol}: 本機沒有序列，跳過")
                 continue
+
+            state = freshness.assess_source_series(
+                "每日", bars[-1].date, run_date,
+                [bar.close for bar in bars], key=symbol,
+            )
+            if not state.usable:
+                raise ValueError(f"{symbol}: {state.reason}，不得計分")
 
             scored = score_series(
                 symbol, bars, window,

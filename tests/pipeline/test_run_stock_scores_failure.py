@@ -17,6 +17,8 @@ from barometer.pipeline import runlog
 
 from research.pipeline import run_stock_scores
 
+RUN_DATE = dt.date(2026, 9, 8)
+
 
 @pytest.fixture
 def isolated_root(tmp_path, monkeypatch):
@@ -50,12 +52,12 @@ def _runs() -> list[dict]:
 
 def test_short_history_still_raises(isolated_root, three_days):
     with pytest.raises(ValueError, match="SPCX"):
-        run_stock_scores.run(["SPCX"])
+        run_stock_scores.run(["SPCX"], run_date=RUN_DATE)
 
 
 def test_failed_run_is_recorded_in_the_runlog(isolated_root, three_days):
     with pytest.raises(ValueError):
-        run_stock_scores.run(["SPCX"], task="test_stock_scores")
+        run_stock_scores.run(["SPCX"], task="test_stock_scores", run_date=RUN_DATE)
 
     runs = _runs()
     assert len(runs) == 1, "失敗的執行沒有留下任何 runlog"
@@ -64,14 +66,14 @@ def test_failed_run_is_recorded_in_the_runlog(isolated_root, three_days):
 
 def test_failed_run_is_marked_error_not_ok(isolated_root, three_days):
     with pytest.raises(ValueError):
-        run_stock_scores.run(["SPCX"])
+        run_stock_scores.run(["SPCX"], run_date=RUN_DATE)
 
     assert _runs()[0]["status"] == "error"
 
 
 def test_failed_run_records_why(isolated_root, three_days):
     with pytest.raises(ValueError):
-        run_stock_scores.run(["SPCX"])
+        run_stock_scores.run(["SPCX"], run_date=RUN_DATE)
 
     notes = " ".join(_runs()[0]["notes"])
     assert "SPCX" in notes
@@ -83,7 +85,7 @@ def test_successful_run_still_records_ok(isolated_root, monkeypatch):
         run_stock_scores.csv_audit, "read_current",
         lambda symbol, **kw: _bars(symbol, 5),
     )
-    log = run_stock_scores.run(["2330.TW"], task="test_ok")
+    log = run_stock_scores.run(["2330.TW"], task="test_ok", run_date=RUN_DATE)
 
     assert log.status == "ok"
     runs = _runs()
@@ -93,6 +95,6 @@ def test_successful_run_still_records_ok(isolated_root, monkeypatch):
 def test_runlog_written_only_once_per_run(isolated_root, three_days):
     """重拋不得讓同一次執行被記兩筆。"""
     with pytest.raises(ValueError):
-        run_stock_scores.run(["SPCX"])
+        run_stock_scores.run(["SPCX"], run_date=RUN_DATE)
 
     assert len(_runs()) == 1
