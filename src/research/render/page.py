@@ -18,12 +18,19 @@ from research import config as rc
 from research.domain import scoring_stock
 
 TW_INTRO = (
-    "台股五大權值股。顯示單位「張」，資料層一律存「股」，換算只在顯示層做。"
+    "台股追蹤標的。顯示單位「張」，資料層一律存「股」，換算只在顯示層做。"
 )
-US_INTRO = (
-    "美股七檔權值股 + 三檔台灣 ADR。顯示單位「股」。"
-    "同一家公司的台股與 ADR 可以互看：2330/TSM、2317/HNHPF、3711/ASX。"
-)
+
+
+def _us_intro() -> str:
+    pairs = "、".join(f"{tw}/{adr}" for tw, adr in rc.ADR_PAIRS)
+    notes = "；".join(rc.PAIR_NOTES)
+    intro = "美股追蹤標的與台灣 ADR。顯示單位「股」。"
+    if pairs:
+        intro += f"同一家公司的台股與 ADR 可以互看：{pairs}。"
+    if notes:
+        intro += f"對照組資料：{notes}。"
+    return intro
 
 FOOTER = (
     "這是**加了鎖的公開頁面**，不是私密頁面，放進來的東西要能承受萬一被看到。",
@@ -87,5 +94,5 @@ def build_tabs(rows_by_symbol: dict[str, tuple[list, dict]]) -> list[Tab]:
     return [
         Tab(key="tw", title="台股權值股", rows=rows_for(rc.TW_STOCKS), intro=TW_INTRO),
         Tab(key="us", title="美股權值股與 ADR",
-            rows=rows_for(rc.US_STOCKS + rc.ADRS), intro=US_INTRO),
+            rows=rows_for(rc.US_STOCKS + rc.ADRS), intro=_us_intro()),
     ]

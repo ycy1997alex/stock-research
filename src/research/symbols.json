@@ -1,0 +1,19 @@
+{
+  "symbols": [
+    {"symbol": "2330.TW", "name": "台積電", "market": "TW", "group": "tw", "pair": "TSM"},
+    {"symbol": "2454.TW", "name": "聯發科", "market": "TW", "group": "tw"},
+    {"symbol": "2308.TW", "name": "台達電", "market": "TW", "group": "tw"},
+    {"symbol": "2317.TW", "name": "鴻海", "market": "TW", "group": "tw", "pair": "HNHPF"},
+    {"symbol": "3711.TW", "name": "日月光投控", "market": "TW", "group": "tw", "pair": "ASX"},
+    {"symbol": "NVDA", "name": "NVIDIA", "market": "US", "group": "us"},
+    {"symbol": "AAPL", "name": "Apple", "market": "US", "group": "us"},
+    {"symbol": "GOOG", "name": "Alphabet", "market": "US", "group": "us"},
+    {"symbol": "MSFT", "name": "Microsoft", "market": "US", "group": "us"},
+    {"symbol": "AMZN", "name": "Amazon", "market": "US", "group": "us"},
+    {"symbol": "SPCX", "name": "SpaceX", "market": "US", "group": "us"},
+    {"symbol": "META", "name": "Meta", "market": "US", "group": "us"},
+    {"symbol": "TSM", "name": "台積電 ADR", "market": "US", "group": "adr"},
+    {"symbol": "HNHPF", "name": "鴻海 ADR", "market": "US", "group": "adr", "thin_liquidity": true},
+    {"symbol": "ASX", "name": "日月光 ADR", "market": "US", "group": "adr"}
+  ]
+}

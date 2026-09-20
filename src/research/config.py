@@ -1,56 +1,105 @@
-"""stock-research 的標的清單（ToDo §7.2）。
+"""Stock universe loaded from JSON, with an editable external override.
 
-**這個 repo 的內容只有自己看** —— 具名個股的數值、評分、建議只出現在這裡，
-不進 iThome 挑戰內容（§2.1）。挑戰內容那邊只講「什麼是權值股、名單從哪裡查、
-為什麼是這幾檔」這些觀念。
-
-資料層與 market-barometer **共用**（同一個 STOCKDATA_ROOT），抓一次餵兩個站，
-避免重複打 API（§1 第 8 條）。
+Edit ``%STOCKDATA_ROOT%/research_symbols.json`` to add a symbol without
+changing Python code or rebuilding the desktop executable. If it is absent,
+the bundled ``symbols.json`` supplies the initial 15-symbol universe.
 """
+
 from __future__ import annotations
 
-# 台股權值股 —— 顯示單位「張」（內部一律存股）
-TW_STOCKS: tuple[str, ...] = (
-    "2330.TW",   # 台積電
-    "2454.TW",   # 聯發科
-    "2308.TW",   # 台達電
-    "2317.TW",   # 鴻海
-    "3711.TW",   # 日月光投控
-)
+import json
+from dataclasses import dataclass
+from pathlib import Path
 
-# 美股權值股 —— 顯示單位「股」
-US_STOCKS: tuple[str, ...] = (
-    "NVDA", "AAPL", "GOOG", "MSFT", "AMZN", "SPCX", "META",
-)
+from barometer import config as barometer_config
 
-# 台灣 ADR —— 顯示單位「股」
-ADRS: tuple[str, ...] = ("TSM", "HNHPF", "ASX")
 
-ALL_SYMBOLS = TW_STOCKS + US_STOCKS + ADRS
+DEFAULT_UNIVERSE_PATH = Path(__file__).with_name("symbols.json")
+EXTERNAL_UNIVERSE_NAME = "research_symbols.json"
+_REQUIRED = frozenset({"symbol", "name", "market", "group"})
+_GROUP_MARKET = {"tw": "TW", "us": "US", "adr": "US"}
 
-NAMES: dict[str, str] = {
-    "2330.TW": "台積電", "2454.TW": "聯發科", "2308.TW": "台達電",
-    "2317.TW": "鴻海", "3711.TW": "日月光投控",
-    "NVDA": "NVIDIA", "AAPL": "Apple", "GOOG": "Alphabet",
-    "MSFT": "Microsoft", "AMZN": "Amazon", "SPCX": "SpaceX", "META": "Meta",
-    "TSM": "台積電 ADR", "HNHPF": "鴻海 ADR", "ASX": "日月光 ADR",
-}
 
-# 對照組：同一家公司的台股與 ADR 可以互看
-ADR_PAIRS: tuple[tuple[str, str], ...] = (
-    ("2330.TW", "TSM"),
-    ("2317.TW", "HNHPF"),
-    ("3711.TW", "ASX"),
-)
+@dataclass(frozen=True, slots=True)
+class Universe:
+    tw_stocks: tuple[str, ...]
+    us_stocks: tuple[str, ...]
+    adrs: tuple[str, ...]
+    names: dict[str, str]
+    adr_pairs: tuple[tuple[str, str], ...]
+    pair_notes: tuple[str, ...]
+    thin_liquidity: tuple[str, ...]
 
-# §10 已知的坑
-#   SPCX  2026-06-12 才上市，日線筆數極少 → MA200 不可得，
-#         「52 週高點回撤」只能退化成「上市以來高點」，
-#         中期／長期評分**回傳「資料不足」，不准硬算**
-#   HNHPF 零缺值但**薄流動性**（9/4 只成交 8,200 股，同日 TSM 是 12,276,300 股）
-#         → 量價與籌碼指標會失真
-#   GOOG  已擇定 GOOG（無投票權）而非 GOOGL，文章要寫明為什麼
-MIN_BARS_MID_TERM = 60    # 中期評分至少要這麼多根
-MIN_BARS_LONG_TERM = 200  # 長期評分至少要這麼多根
+    @property
+    def all_symbols(self) -> tuple[str, ...]:
+        return self.tw_stocks + self.us_stocks + self.adrs
 
-THIN_LIQUIDITY = ("HNHPF",)
+
+def load_universe(path: Path) -> Universe:
+    """Read and validate one complete universe; never fill missing fields."""
+    with path.open(encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict) or not isinstance(data.get("symbols"), list) or not data["symbols"]:
+        raise ValueError(f"{path}: symbols must be a nonempty list")
+
+    groups: dict[str, list[str]] = {group: [] for group in _GROUP_MARKET}
+    names: dict[str, str] = {}
+    pairs_requested: list[tuple[str, str]] = []
+    thin: list[str] = []
+    for index, row in enumerate(data["symbols"]):
+        if not isinstance(row, dict):
+            raise ValueError(f"{path}: symbols[{index}] must be an object")
+        missing = _REQUIRED - row.keys()
+        if missing:
+            raise ValueError(f"{path}: symbols[{index}] missing {', '.join(sorted(missing))}")
+        symbol, name, market, group = (row[key] for key in ("symbol", "name", "market", "group"))
+        if not all(isinstance(value, str) and value.strip() for value in (symbol, name, market, group)):
+            raise ValueError(f"{path}: symbols[{index}] required fields must be nonempty strings")
+        if group not in _GROUP_MARKET or market != _GROUP_MARKET[group]:
+            raise ValueError(f"{path}: symbols[{index}] invalid market/group: {market}/{group}")
+        if symbol in names:
+            raise ValueError(f"{path}: duplicate symbol {symbol}")
+        names[symbol] = name
+        groups[group].append(symbol)
+        pair = row.get("pair")
+        if pair is not None:
+            if group != "tw" or not isinstance(pair, str) or not pair.strip():
+                raise ValueError(f"{path}: symbols[{index}] pair requires a TW stock and nonempty string")
+            pairs_requested.append((symbol, pair))
+        if row.get("thin_liquidity", False):
+            thin.append(symbol)
+
+    adrs = set(groups["adr"])
+    pairs = tuple((tw, adr) for tw, adr in pairs_requested if adr in adrs)
+    notes = tuple(f"{tw} 對照組 {adr} 未列入標的清單" for tw, adr in pairs_requested if adr not in adrs)
+    return Universe(
+        tw_stocks=tuple(groups["tw"]),
+        us_stocks=tuple(groups["us"]),
+        adrs=tuple(groups["adr"]),
+        names=names,
+        adr_pairs=pairs,
+        pair_notes=notes,
+        thin_liquidity=tuple(thin),
+    )
+
+
+def active_universe(root: Path | None = None) -> Universe:
+    """External file wins if present; an invalid file fails before fetching."""
+    root = barometer_config.stockdata_root() if root is None else root
+    override = root / EXTERNAL_UNIVERSE_NAME
+    return load_universe(override if override.exists() else DEFAULT_UNIVERSE_PATH)
+
+
+_UNIVERSE = active_universe()
+TW_STOCKS = _UNIVERSE.tw_stocks
+US_STOCKS = _UNIVERSE.us_stocks
+ADRS = _UNIVERSE.adrs
+ALL_SYMBOLS = _UNIVERSE.all_symbols
+NAMES = _UNIVERSE.names
+ADR_PAIRS = _UNIVERSE.adr_pairs
+PAIR_NOTES = _UNIVERSE.pair_notes
+THIN_LIQUIDITY = _UNIVERSE.thin_liquidity
+
+# Data sufficiency is a scoring rule, independent of the watched universe.
+MIN_BARS_MID_TERM = 60
+MIN_BARS_LONG_TERM = 200

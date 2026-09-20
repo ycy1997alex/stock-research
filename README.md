@@ -35,7 +35,8 @@
 
 ```
 src/research/
-├─ config.py                    ← 標的清單與已知的坑
+├─ config.py                    ← 讀取並驗證外部標的設定
+├─ symbols.json                 ← 預設 15 檔標的
 ├─ app.ico                      ← 多解析度圖示（由 tools/make_icon.py 產生）
 ├─ domain/
 │  └─ scoring_stock.py          ← 三期評分 + 籌碼面第四維度
@@ -51,7 +52,7 @@ src/research/
    └─ main.py                   ← 組裝根（唯一認得 storage 的地方）
 
 tools/
-├─ fetch_stocks.py              ← 抓 15 檔
+├─ fetch_stocks.py              ← 抓設定檔列出的標的
 ├─ score_stocks.py              ← 三期評分、五日加權、變化與平滑化
 ├─ make_icon.py                 ← 產生 app.ico（一次性）
 └─ publish.py                   ← 兩層鎖發布（Key + Password）
@@ -173,11 +174,14 @@ Password 有字串重疊，這是刻意的 —— 那邊只有一組 Password �
 | 項目 | 值 |
 |---|---|
 | `STOCKDATA_ROOT` | 資料根目錄，**與 market-barometer 共用**，預設 `D:\Repo\_stockdata` |
+| 標的清單 | `%STOCKDATA_ROOT%\research_symbols.json`；不存在時用套件內的 `src/research/symbols.json` |
 | 發布憑證 | `%STOCKDATA_ROOT%\secrets\publish.json` 的 `stock-research` 區塊（兩層鎖，2 × 2 = 4 組） |
 | 金鑰 | 這個 repo 不直接用任何外部金鑰；shioaji 與 FRED 由 `barometer` 那側處理 |
 
 `Key/` 與 `secrets/` 都被 `.gitignore` 擋著。**這是 public repo，不要用
 `git add -f` 繞過。**
+
+新增標的時編輯外部 `research_symbols.json` 的 `symbols` 陣列，每筆都要有 `symbol`、`name`、`market`（`TW`／`US`）、`group`（`tw`／`us`／`adr`）；台股與 ADR 對照可在台股那筆加 `pair`。程式啟動時會驗證整份檔案，缺欄位會報錯，對照組缺席會在頁面標註。修改後重新啟動管線或桌面程式即可載入，不需改 `.py` 或重打包。
 
 ---
 

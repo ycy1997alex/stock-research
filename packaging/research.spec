@@ -62,6 +62,7 @@ a = Analysis(
     datas=[
         (str(BAROMETER_SRC / "barometer" / "storage" / "schema.sql"),
          "barometer/storage"),
+        (str(SRC / "research" / "symbols.json"), "research"),
         # 圖示也要進 datas，不只是 icon= —— 前者給執行中的視窗與工作列用，
         # 後者只決定 Explorer 裡那顆。兩個來源不同，缺一個就會有一面不對。
         (str(SRC / "research" / "app.ico"), "research"),
