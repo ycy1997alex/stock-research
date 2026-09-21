@@ -43,7 +43,9 @@ from barometer.storage.sqlite_repo import SqliteRepo  # noqa: E402
 from research import config as rc  # noqa: E402
 from research.datasources import chips_tw  # noqa: E402
 from research.pipeline import run_stock_scores  # noqa: E402
+from research.pipeline import tw_local  # noqa: E402
 from research.render import page as rpage  # noqa: E402
+from research.storage.tw_local import TwLocalStore  # noqa: E402
 
 SITE = credentials.STOCK_RESEARCH
 TITLE = "stock-research"
@@ -62,19 +64,59 @@ def main(argv: list[str]) -> int:
     with SqliteRepo(config.db_path()) as chips_repo:
         chips_repo.init_schema()
         per_symbol, notes = chips_tw.net_shares_by_symbol(list(rc.TW_STOCKS), tw_days, repo=chips_repo)
+        # Each endpoint returns the entire listed market; select watched stocks
+        # only after one fetch and retain each source's own publication date.
+        latest_session = tw_days[-1]
+        volumes = {}
+        closes = {}
+        for symbol in rc.TW_STOCKS:
+            bars = csv_audit.read_current(symbol)
+            volumes[symbol] = next((bar.volume_shares for bar in reversed(bars)
+                                    if bar.date == latest_session), None)
+            closes[symbol] = next((bar.close for bar in reversed(bars)
+                                   if bar.date == latest_session), None)
+        local_store = TwLocalStore(chips_repo.conn)
+        local_result = tw_local.run(
+            local_store, latest_session, list(rc.TW_STOCKS),
+            volume_shares_by_symbol=volumes, close_twd_by_symbol=closes,
+        )
+        local_by_symbol = {symbol: tw_local.local_view(local_store, symbol, latest_session)
+                           for symbol in rc.TW_STOCKS}
     for n in notes:
         print(f"  ! {n}")
+    for note in local_result.notes:
+        print(f"  ! {note}")
+    for dataset, coverage in local_result.coverage.items():
+        print(f"{dataset}: {coverage.label('涵蓋率')}")
     chips_by_symbol = {s: dict(zip(tw_days, v)) for s, v in per_symbol.items()}
 
     rows_by_symbol = {}
-    for sym in rc.ALL_SYMBOLS:
-        bars = csv_audit.read_current(sym)
-        if not bars:
-            continue
-        scored = run_stock_scores.score_series(
-            sym, bars, net_by_date=chips_by_symbol.get(sym)
-        )
-        rows_by_symbol[sym] = (scored, run_stock_scores.summarize_window(scored))
+    missing_reasons: dict[str, str] = {}
+    provenance_by_symbol: dict[str, tuple[str, str]] = {}
+    with SqliteRepo(config.db_path()) as price_repo:
+        price_repo.init_schema()
+        for sym in rc.ALL_SYMBOLS:
+            current = csv_audit.read_current(sym)
+            adjusted = price_repo.get_adjusted_prices(sym)
+            if not current:
+                missing_reasons[sym] = "本機沒有價格序列"
+                continue
+            if not adjusted:
+                missing_reasons[sym] = "還原序列資料不足，無法計分"
+                continue
+            if adjusted[-1].date < current[-1].date:
+                missing_reasons[sym] = "還原序列尚未涵蓋最新交易日，無法計分"
+                continue
+            price_source = current[-1].source or "未記錄"
+            source = f"價格：{price_source}"
+            if sym in rc.TW_STOCKS and sym in chips_by_symbol:
+                source += "；籌碼：TWSE T86"
+            provenance_by_symbol[sym] = (
+                source, current[-1].as_of.strftime("%Y-%m-%d %H:%M"))
+            scored = run_stock_scores.score_series(
+                sym, adjusted, net_by_date=chips_by_symbol.get(sym)
+            )
+            rows_by_symbol[sym] = (scored, run_stock_scores.summarize_window(scored))
 
     # 分數落地（§10，2026-09-18）。`run_daily.ps1` 的註解寫著「評分不在這裡跑，
     # publish.py 產頁面的時候會自己算」—— 那句話是對的，缺的是後半句：算完要
@@ -88,7 +130,13 @@ def main(argv: list[str]) -> int:
     print(f"分數  {scores.counts.get('symbols_ok', 0)} 檔寫進 score_history"
           f"（run_id={scores.run_id}）")
 
-    tabs = rpage.build_tabs(rows_by_symbol)
+    tabs = rpage.build_tabs(
+        rows_by_symbol, provenance_by_symbol=provenance_by_symbol,
+        missing_reasons=missing_reasons,
+        local_by_symbol=local_by_symbol,
+        local_coverage={name: (coverage.available, coverage.expected)
+                        for name, coverage in local_result.coverage.items()},
+    )
     # enforce_lint=False：這一側可以有建議（§2.1）
     html = base_page.render(
         tabs, title=TITLE, tagline=TAGLINE,

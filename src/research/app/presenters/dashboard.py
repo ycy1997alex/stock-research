@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from barometer.app.presenters.dashboard import ViewRow
 from barometer.domain import weighting
+from barometer.domain.coverage import Coverage
 from barometer.domain.ports import ScoreHistoryRepository
 
 from research import config as rc
@@ -93,6 +94,11 @@ class StockPresenter:
 
     def _note(self, symbol: str, latest, history: list) -> str:
         parts = [self._terms(latest.subscores)]
+        technical = Coverage(sum(k in latest.subscores for k, _ in TERMS), len(TERMS))
+        parts.append(technical.label("技術面"))
+        if technical.degraded:
+            parts.append("低涵蓋・降級")
+        parts.append(Coverage(0, 0).label("基本面"))
 
         # 不足五天就不算 —— `weighted_average` 對長度不是 5 的輸入會丟例外，
         # 而「剛開始跑、只有兩三天分數」是常態，不是異常。

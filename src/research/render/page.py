@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from barometer.render.page import Row, Tab
+from barometer.domain.coverage import Coverage
 
 from research import config as rc
 from research.domain import scoring_stock
@@ -45,6 +46,8 @@ def _stock_row(
     symbol: str,
     scored: list,
     summary: dict,
+    source: str = "",
+    fetched_at: str | None = None,
 ) -> Row:
     latest_date, latest = scored[-1]
     terms = []
@@ -75,10 +78,23 @@ def _stock_row(
         series=[(d.isoformat(), s.overall) for d, s in scored],
         change=(f"五日加權 {wavg:.1f}" if wavg is not None else None),
         note="｜".join(n for n in notes if n),
+        source=source,
+        fetched_at=fetched_at,
+        coverage=Coverage(
+            sum(term.score is not None for term in
+                (latest.short, latest.mid, latest.long)), 3),
+        coverage_name="技術面",
+        fundamental_coverage=Coverage(0, 0),
     )
 
 
-def build_tabs(rows_by_symbol: dict[str, tuple[list, dict]]) -> list[Tab]:
+def build_tabs(
+    rows_by_symbol: dict[str, tuple[list, dict]],
+    provenance_by_symbol: dict[str, tuple[str, str]] | None = None,
+    missing_reasons: dict[str, str] | None = None,
+    local_by_symbol: dict[str, dict] | None = None,
+    local_coverage: dict[str, tuple[int, int]] | None = None,
+) -> list[Tab]:
     """`rows_by_symbol[symbol] = (scored, summary)`，由 pipeline 那側算好餵進來。"""
     def rows_for(symbols):
         out = []
@@ -86,13 +102,103 @@ def build_tabs(rows_by_symbol: dict[str, tuple[list, dict]]) -> list[Tab]:
             got = rows_by_symbol.get(s)
             if got is None:
                 out.append(Row(label=f"{s} {rc.NAMES.get(s, '')}".strip(),
-                               value=None, data_date=None, note="本機沒有序列"))
+                               value=None, data_date=None,
+                               note=(missing_reasons or {}).get(s, "本機沒有序列")))
                 continue
-            out.append(_stock_row(s, *got))
+            provenance = (provenance_by_symbol or {}).get(s, ("", None))
+            out.append(_stock_row(s, *got, *provenance))
         return out
 
-    return [
+    tabs = [
         Tab(key="tw", title="台股權值股", rows=rows_for(rc.TW_STOCKS), intro=TW_INTRO),
         Tab(key="us", title="美股權值股與 ADR",
             rows=rows_for(rc.US_STOCKS + rc.ADRS), intro=_us_intro()),
+    ]
+    if local_by_symbol is not None:
+        tabs.extend(_local_tabs(local_by_symbol, local_coverage or {}))
+    return tabs
+
+
+_LOCAL_NAMES = {
+    "valuation": "官方估值",
+    "breadth": "真實漲跌家數",
+    "distribution": "集保戶股權分散",
+    "foreign": "外資及陸資持股",
+    "day_trade": "當沖比",
+    "lending": "借券賣出餘額",
+    "margin_estimate": "融資維持率與平均成本（推算值）",
+}
+
+
+def _fmt(value: object, suffix: str = "") -> str:
+    if value is None:
+        return "資料不足"
+    if isinstance(value, (float, int)):
+        return f"{value:,.2f}{suffix}" if isinstance(value, float) else f"{value:,}{suffix}"
+    return str(value)
+
+
+def _local_value(dataset: str, value: dict) -> str:
+    if dataset == "valuation":
+        return f"本益比 {_fmt(value.get('pe_ratio'))}｜殖利率 {_fmt(value.get('dividend_yield_pct'), '%')}｜股價淨值比 {_fmt(value.get('pb_ratio'))}"
+    if dataset == "breadth":
+        return f"上漲 {_fmt(value.get('advancers_count'))} 家｜下跌 {_fmt(value.get('decliners_count'))} 家｜持平 {_fmt(value.get('unchanged_count'))} 家"
+    if dataset == "distribution":
+        grades = value.get("grades", {})
+        selected = [f"第{grade}級 {_fmt(grades[grade].get('custody_pct'), '%')}"
+                    for grade in ("1", "15") if grade in grades]
+        return f"持股分級 {len(grades)} 級" + ("｜" + "｜".join(selected) if selected else "")
+    if dataset == "foreign":
+        return f"持股比率 {_fmt(value.get('foreign_holding_pct'), '%')}｜持有 {_fmt(value.get('foreign_held_shares'), ' 股')}"
+    if dataset == "day_trade":
+        return f"當沖比 {_fmt(value.get('day_trade_ratio_pct'), '%')}｜成交 {_fmt(value.get('day_trade_shares'), ' 股')}"
+    if dataset == "lending":
+        return f"借券賣出餘額 {_fmt(value.get('borrowed_short_balance_shares'), ' 股')}｜融券餘額 {_fmt(value.get('short_balance_shares'), ' 股')}"
+    if dataset == "margin_estimate":
+        return (f"維持率 {_fmt(value.get('maintenance_pct'), '%')}｜"
+                f"平均成本 {_fmt(value.get('average_cost_twd'), ' 元')}｜"
+                f"融資餘額 {_fmt(value.get('margin_balance_shares'), ' 股')}")
+    raise ValueError(dataset)
+
+
+def _local_tabs(local_by_symbol: dict[str, dict], coverage: dict[str, tuple[int, int]]) -> list[Tab]:
+    rows: list[Row] = []
+    revenue_rows: list[Row] = []
+    for symbol in rc.TW_STOCKS:
+        view = local_by_symbol.get(symbol, {})
+        for dataset, title in _LOCAL_NAMES.items():
+            value = (view.get("local") or {}).get(dataset)
+            provenance = view.get("provenance", {}).get(dataset, {})
+            counts = coverage.get(dataset)
+            rows.append(Row(
+                label=f"{symbol} {title}", value=_local_value(dataset, value) if value is not None else None,
+                data_date=provenance.get("data_date"),
+                freq="每週" if dataset == "distribution" else "每日",
+                source=provenance.get("source", ""), fetched_at=provenance.get("retrieved_at"),
+                coverage=Coverage(*counts) if counts else None,
+                coverage_name=title,
+                note=("資料不足" if value is None else
+                      ("推算值：假設融資成數 60%；新增部位以當日收盤價、減少部位以先前推算平均成本認定。"
+                       "非實際帳戶維持率。" + ("此日為收盤價初始假設。" if value.get("seeded_from_close") else "")
+                       if dataset == "margin_estimate" else "僅本地資料維度，數值分數待第五批")),
+            ))
+        revenue = (view.get("fundamentals") or {}).get("revenue")
+        provenance = view.get("fundamental_provenance", {}).get("revenue", {})
+        counts = coverage.get("revenue")
+        revenue_rows.append(Row(
+            label=f"{symbol} 月營收", value=(f"{_fmt(revenue.get('revenue_ktwd'))} 仟元" if revenue else None),
+            data_date=provenance.get("data_date"), freq="每月", source=provenance.get("source", ""),
+            fetched_at=provenance.get("retrieved_at"),
+            coverage=Coverage(*counts) if counts else None,
+            coverage_name="月營收", note=(f"所屬月份 {revenue['reporting_period']}｜獨立基本面資料，不進任何分數"
+                                          if revenue else "獨立基本面資料，不進任何分數"),
+        ))
+    # ADR counterpart has no TWSE/TDCC observations. Say so explicitly.
+    rows.extend(Row(label=f"{symbol} 台股本地資料", value=None, data_date=None,
+                    note="無對應資料") for symbol in rc.ADRS)
+    return [
+        Tab(key="tw_local", title="台股本地維度", rows=rows,
+            intro="台股官方與集保資料。各列分別標來源、資料日期、取得時間與涵蓋率；尚未計算本地數值分數。"),
+        Tab(key="tw_revenue", title="台股月營收（獨立）", rows=revenue_rows,
+            intro="月營收公布時市場可能已反應，不進任何分數。資料日期為出表日，所屬月份另列。"),
     ]
