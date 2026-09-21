@@ -1,0 +1,1 @@
+"""Research-side persistence adapters."""
