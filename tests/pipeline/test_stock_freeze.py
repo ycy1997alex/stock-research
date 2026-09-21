@@ -17,7 +17,9 @@ def test_frozen_stock_history_is_not_scored(monkeypatch, tmp_path):
                  100 + day * 0.1, 1000, "yfinance", dt.datetime(2026, 7, 1))
         for day in range(60)
     ]
-    monkeypatch.setattr(run_stock_scores.csv_audit, "read_current", lambda _: bars)
+    with SqliteRepo(tmp_path / "market.db") as repo:
+        repo.init_schema()
+        repo.upsert_adjusted_prices(bars)
 
     with pytest.raises(ValueError, match="凍結"):
         run_stock_scores.run(["2330.TW"], task="test_stock_freeze")

@@ -53,8 +53,10 @@ def main() -> int:
 
     spcx_ok = False
     scored_count = 0
+    price_repo = SqliteRepo(bconfig.db_path())
+    price_repo.init_schema()
     for sym in symbols:
-        bars = csv_audit.read_current(sym)
+        bars = price_repo.get_adjusted_prices(sym)
         if not bars:
             print(f"{sym:<10}{'—— 沒有序列 ——'}")
             continue
@@ -86,7 +88,7 @@ def main() -> int:
 
     print("\n--- 五日評分變化與平滑化（§8.1） ---")
     for sym in list(rc.TW_STOCKS) + ["NVDA", "SPCX"]:
-        bars = csv_audit.read_current(sym)
+        bars = price_repo.get_adjusted_prices(sym)
         if not bars:
             continue
         scored = run_stock_scores.score_series(
@@ -106,6 +108,7 @@ def main() -> int:
     print(f"有分數的標的：{scored_count}／{len(symbols)}")
     print("OK SPCX 中期與長期都是資料不足，沒有硬算"
           if spcx_ok else "FAIL SPCX 的中期或長期被硬算出數字了")
+    price_repo.close()
     return 0 if spcx_ok and scored_count == len(symbols) else 1
 
 
