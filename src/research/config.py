@@ -103,3 +103,10 @@ THIN_LIQUIDITY = _UNIVERSE.thin_liquidity
 # Data sufficiency is a scoring rule, independent of the watched universe.
 MIN_BARS_MID_TERM = 60
 MIN_BARS_LONG_TERM = 200
+
+# Batch 5-8 engineering calibration: TW 305 samples, 100% covered, 15% keeps
+# the raw-gap P90 below 15 points. US has no observations available before its
+# latest completed price session, so the native axis remains off until enough
+# as-of history is collected. No future-return information sets these weights.
+NATIVE_WEIGHT_TW = 0.15
+NATIVE_WEIGHT_US = 0.0

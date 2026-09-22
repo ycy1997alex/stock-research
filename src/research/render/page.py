@@ -48,6 +48,8 @@ def _stock_row(
     summary: dict,
     source: str = "",
     fetched_at: str | None = None,
+    local_data_date: str | None = None,
+    local_age_days: int | None = None,
 ) -> Row:
     latest_date, latest = scored[-1]
     terms = []
@@ -62,7 +64,23 @@ def _stock_row(
             else f"籌碼 {scoring_stock.INSUFFICIENT}"
         )
 
-    notes = ["／".join(terms)]
+    notes = ["可比分數只看台美共用的還原 OHLCV；本地分數另加入市場專屬維度，兩者回答不同問題。",
+             "／".join(terms)]
+    if latest.strength is not None:
+        notes.append(f"強度 C {latest.strength:.1f}（不進方向分與星等）")
+    else:
+        notes.append("強度 C 資料不足")
+    for term in (latest.short, latest.mid, latest.long):
+        for item in term.items:
+            amount = f"{item.score:+.0f}" if item.score is not None else "資料不足"
+            notes.append(f"{item.name} {amount}（權重 {item.weight:.0%}）：{item.detail}")
+    notes.extend(latest.local_reasons)
+    if latest.local_note:
+        notes.append(latest.local_note)
+    if local_data_date is not None and local_age_days is not None:
+        notes.append(f"本地維度資料日：{local_data_date}（延遲 {local_age_days} 天）")
+    if latest.overrides:
+        notes.append("Override：" + "；".join(latest.overrides))
     notes.extend(latest.caveats)
     if latest.mid.score is None:
         notes.append(latest.mid.reason)
@@ -70,13 +88,19 @@ def _stock_row(
         notes.append(latest.long.reason)
 
     wavg = summary["weighted_average"]
+    if wavg is not None:
+        notes.append(f"五日加權 {wavg:.1f}（定性觀察）")
+    if latest.comparable is not None:
+        value = f"可比 {latest.comparable:+.1f} {scoring_stock.to_stars(latest.comparable)['text']}｜本地 {latest.native:+.1f} {scoring_stock.to_stars(latest.native)['text']}"
+    else:
+        value = None
     return Row(
         label=f"{symbol} {rc.NAMES.get(symbol, '')}".strip(),
-        value=(f"{latest.overall:.1f}" if latest.overall is not None else None),
+        value=value,
         data_date=latest_date.isoformat(),
         freq="每日",
         series=[(d.isoformat(), s.overall) for d, s in scored],
-        change=(f"五日加權 {wavg:.1f}" if wavg is not None else None),
+        change=(f"原始差距 {latest.raw_gap:+.1f}" if latest.raw_gap is not None else None),
         note="｜".join(n for n in notes if n),
         source=source,
         fetched_at=fetched_at,
@@ -94,6 +118,7 @@ def build_tabs(
     missing_reasons: dict[str, str] | None = None,
     local_by_symbol: dict[str, dict] | None = None,
     local_coverage: dict[str, tuple[int, int]] | None = None,
+    local_meta_by_symbol: dict[str, tuple[str, int]] | None = None,
 ) -> list[Tab]:
     """`rows_by_symbol[symbol] = (scored, summary)`，由 pipeline 那側算好餵進來。"""
     def rows_for(symbols):
@@ -106,13 +131,14 @@ def build_tabs(
                                note=(missing_reasons or {}).get(s, "本機沒有序列")))
                 continue
             provenance = (provenance_by_symbol or {}).get(s, ("", None))
-            out.append(_stock_row(s, *got, *provenance))
+            local_meta = (local_meta_by_symbol or {}).get(s, (None, None))
+            out.append(_stock_row(s, *got, *provenance, *local_meta))
         return out
 
     tabs = [
-        Tab(key="tw", title="台股權值股", rows=rows_for(rc.TW_STOCKS), intro=TW_INTRO),
+        Tab(key="tw", title="台股權值股", rows=rows_for(rc.TW_STOCKS), intro=TW_INTRO + "可比分數可跨市場比較；本地分數包含台股專屬維度。"),
         Tab(key="us", title="美股權值股與 ADR",
-            rows=rows_for(rc.US_STOCKS + rc.ADRS), intro=_us_intro()),
+            rows=rows_for(rc.US_STOCKS + rc.ADRS), intro=_us_intro() + "可比分數可跨市場比較；本地分數只使用有效且有資料日期的美股維度。"),
     ]
     if local_by_symbol is not None:
         tabs.extend(_local_tabs(local_by_symbol, local_coverage or {}))
@@ -180,7 +206,7 @@ def _local_tabs(local_by_symbol: dict[str, dict], coverage: dict[str, tuple[int,
                 note=("資料不足" if value is None else
                       ("推算值：假設融資成數 60%；新增部位以當日收盤價、減少部位以先前推算平均成本認定。"
                        "非實際帳戶維持率。" + ("此日為收盤價初始假設。" if value.get("seeded_from_close") else "")
-                       if dataset == "margin_estimate" else "僅本地資料維度，數值分數待第五批")),
+                       if dataset == "margin_estimate" else "本地維度資料；是否進數值分數依當日資料完整度與延遲判斷")),
             ))
         revenue = (view.get("fundamentals") or {}).get("revenue")
         provenance = view.get("fundamental_provenance", {}).get("revenue", {})
@@ -198,7 +224,7 @@ def _local_tabs(local_by_symbol: dict[str, dict], coverage: dict[str, tuple[int,
                     note="無對應資料") for symbol in rc.ADRS)
     return [
         Tab(key="tw_local", title="台股本地維度", rows=rows,
-            intro="台股官方與集保資料。各列分別標來源、資料日期、取得時間與涵蓋率；尚未計算本地數值分數。"),
+            intro="台股官方與集保資料。各列分別標來源、資料日期、取得時間與涵蓋率；方向分依有效觀測計算。"),
         Tab(key="tw_revenue", title="台股月營收（獨立）", rows=revenue_rows,
             intro="月營收公布時市場可能已反應，不進任何分數。資料日期為出表日，所屬月份另列。"),
     ]

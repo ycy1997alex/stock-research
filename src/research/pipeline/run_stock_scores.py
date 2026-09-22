@@ -18,7 +18,10 @@ from barometer.storage import csv_audit
 from barometer.storage.sqlite_repo import SqliteRepo
 from barometer import config as bconfig
 
-from research.domain import scoring_stock
+from research.domain import local_stock, scoring_stock
+from research.pipeline import tw_local
+from research.storage.tw_local import TwLocalStore
+from research.storage.us_local import UsLocalStore
 
 SCOPE = "stock"
 WINDOW = 5
@@ -29,7 +32,9 @@ def score_series(
     bars: list,
     window: int = WINDOW,
     net_by_date: dict[dt.date, float | None] | None = None,
+    *, local_loader=None,
 ) -> list[tuple[dt.date, scoring_stock.StockScore]]:
+    bars = [bar for bar in bars if not bar.stale]
     session_days = windows.last_n_sessions([b.date for b in bars], window)
     out = []
     for day in session_days:
@@ -40,8 +45,24 @@ def score_series(
             recent = upto[-window:]
             net_series = [net_by_date.get(b.date) for b in recent]
             vol_series = [b.volume_shares for b in recent]
+        local_score = None
+        local_reasons: tuple[str, ...] = ()
+        if local_loader is not None:
+            view = local_loader(symbol, day)
+            if symbol.endswith((".TW", ".TWO")):
+                chips = scoring_stock.score_chips_term(net_series, vol_series) if net_series is not None else None
+                result = local_stock.score_tw_local(view, day, chips.score if chips else None)
+            else:
+                result = local_stock.score_us_local(view, day)
+            local_score, local_reasons = result.score, result.reasons
         out.append(
-            (day, scoring_stock.score_stock(symbol, closes, net_series, vol_series))
+            (day, scoring_stock.score_stock(symbol, closes, net_series, vol_series,
+                                            opens=[b.open for b in upto],
+                                            highs=[b.high for b in upto],
+                                            lows=[b.low for b in upto],
+                                            volumes=[b.volume_shares for b in upto],
+                                            local_score=local_score,
+                                            local_reasons=local_reasons))
         )
     return out
 
@@ -99,10 +120,16 @@ def run(
     bconfig.ensure_dirs()
     repo = SqliteRepo(bconfig.db_path())
     repo.init_schema()
+    tw_store = TwLocalStore(repo.conn)
+    us_store = UsLocalStore(repo.conn)
+
+    def load_local(symbol: str, day: dt.date) -> dict:
+        return (tw_local.local_view(tw_store, symbol, day)
+                if symbol.endswith((".TW", ".TWO")) else us_store.get_asof(day, symbol))
 
     try:
         for symbol in symbols:
-            bars = repo.get_adjusted_prices(symbol)
+            bars = [bar for bar in repo.get_adjusted_prices(symbol) if not bar.stale]
             if not bars:
                 log.count("no_data")
                 log.note(f"{symbol}: 本機沒有還原序列，跳過")
@@ -115,10 +142,8 @@ def run(
             if not state.usable:
                 raise ValueError(f"{symbol}: {state.reason}，不得計分")
 
-            scored = score_series(
-                symbol, bars, window,
-                (chips_by_symbol or {}).get(symbol),
-            )
+            scored = score_series(symbol, bars, window,
+                                  (chips_by_symbol or {}).get(symbol), local_loader=load_local)
             wrote = 0
             for day, s in scored:
                 if s.overall is None:
@@ -133,6 +158,7 @@ def run(
                 repo.put_score(
                     scope=SCOPE, symbol=symbol, as_of=day, score=s.overall,
                     subscores=subs, price_version=price_version,
+                    comparable=s.comparable, native=s.native, strength=s.strength,
                 )
                 wrote += 1
 

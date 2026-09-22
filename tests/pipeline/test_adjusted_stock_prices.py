@@ -17,9 +17,9 @@ def test_stock_score_loader_reads_adjusted_prices(tmp_path, monkeypatch):
     monkeypatch.setattr(run_stock_scores.csv_audit, "read_current", lambda _: (_ for _ in ()).throw(AssertionError("current fed to indicator")))
     seen = []
     original = run_stock_scores.score_series
-    def score(symbol, prices, window, chips):
+    def score(symbol, prices, window, chips, **kwargs):
         seen.extend(prices)
-        return original(symbol, prices, window, chips)
+        return original(symbol, prices, window, chips, **kwargs)
     monkeypatch.setattr(run_stock_scores, "score_series", score)
     run_stock_scores.run(["2330.TW"], run_date=dt.date(2026, 9, 18))
     assert seen == bars

@@ -44,6 +44,16 @@ class TwLocalStore:
                 observations.setdefault(dataset, value)
         return observations
 
+    def get_stock_daily_before(self, day: dt.date, symbol: str, dataset: str) -> dict | None:
+        for row in self.conn.execute(
+            "SELECT payload_json FROM tw_stock_daily WHERE date<? AND symbol=? ORDER BY date DESC",
+            (day.isoformat(), symbol),
+        ):
+            record = json.loads(row[0]).get(dataset)
+            if record is not None:
+                return record
+        return None
+
     def put_market_daily(self, day: dt.date, dataset: str, value: dict, stamp: dt.datetime) -> None:
         prior = self.get_market_daily(day) or {}
         prior[dataset] = value
@@ -87,6 +97,13 @@ class TwLocalStore:
     def get_stock_weekly(self, day: dt.date, symbol: str) -> dict | None:
         row = self.conn.execute(
             "SELECT payload_json FROM tw_stock_weekly WHERE date<=? AND symbol=? ORDER BY date DESC LIMIT 1",
+            (day.isoformat(), symbol),
+        ).fetchone()
+        return self._load(row)
+
+    def get_stock_weekly_before(self, day: dt.date, symbol: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT payload_json FROM tw_stock_weekly WHERE date<? AND symbol=? ORDER BY date DESC LIMIT 1",
             (day.isoformat(), symbol),
         ).fetchone()
         return self._load(row)

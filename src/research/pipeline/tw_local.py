@@ -198,6 +198,21 @@ def local_view(store: TwLocalStore, symbol: str, day: dt.date) -> dict:
     market = store.get_market_daily_asof(day)
     if weekly:
         records["distribution"] = weekly
+        earlier = store.get_stock_weekly_before(dt.date.fromisoformat(weekly["data_date"]), symbol)
+        if earlier:
+            top = (earlier["value"].get("grades") or {}).get("15", {}).get("custody_pct")
+            if top is not None:
+                records["distribution"] = {**weekly, "value": {**weekly["value"], "previous_top_pct": top}}
+    for dataset, current_key, previous_key in (
+        ("foreign", "foreign_holding_pct", "previous_foreign_holding_pct"),
+        ("lending", "borrowed_short_balance_shares", "previous_borrowed_short_balance_shares"),
+    ):
+        record = records.get(dataset)
+        if record:
+            earlier = store.get_stock_daily_before(dt.date.fromisoformat(record["data_date"]), symbol, dataset)
+            previous = (earlier or {}).get("value", {}).get(current_key)
+            if previous is not None:
+                records[dataset] = {**record, "value": {**record["value"], previous_key: previous}}
     if market.get("breadth"):
         records["breadth"] = market["breadth"]
     revenue = store.get_stock_monthly(day, symbol)

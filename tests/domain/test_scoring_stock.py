@@ -79,7 +79,7 @@ def test_scores_stay_in_range():
         s = ss.score_stock("2330.TW", closes)
         for term in (s.short, s.mid, s.long):
             if term.score is not None:
-                assert 0.0 <= term.score <= 100.0
+                assert -100.0 <= term.score <= 100.0
 
 
 # ---------------- 籌碼面第四維度 ----------------

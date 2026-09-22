@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import json
 import sys
+import datetime as dt
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 _HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_HERE / "src"))
@@ -44,8 +46,11 @@ from research import config as rc  # noqa: E402
 from research.datasources import chips_tw  # noqa: E402
 from research.pipeline import run_stock_scores  # noqa: E402
 from research.pipeline import tw_local  # noqa: E402
+from research.pipeline import us_local  # noqa: E402
+from research.domain import local_stock  # noqa: E402
 from research.render import page as rpage  # noqa: E402
 from research.storage.tw_local import TwLocalStore  # noqa: E402
+from research.storage.us_local import UsLocalStore  # noqa: E402
 
 SITE = credentials.STOCK_RESEARCH
 TITLE = "stock-research"
@@ -82,19 +87,32 @@ def main(argv: list[str]) -> int:
         )
         local_by_symbol = {symbol: tw_local.local_view(local_store, symbol, latest_session)
                            for symbol in rc.TW_STOCKS}
+        us_result = us_local.run(UsLocalStore(chips_repo.conn),
+                                 list(rc.US_STOCKS + rc.ADRS),
+                                 dt.datetime.now(ZoneInfo("Asia/Taipei")).date())
     for n in notes:
         print(f"  ! {n}")
     for note in local_result.notes:
         print(f"  ! {note}")
     for dataset, coverage in local_result.coverage.items():
         print(f"{dataset}: {coverage.label('涵蓋率')}")
+    for dataset, available in us_result.coverage.items():
+        print(f"US {dataset}: {available}/{len(rc.US_STOCKS + rc.ADRS)}")
     chips_by_symbol = {s: dict(zip(tw_days, v)) for s, v in per_symbol.items()}
 
     rows_by_symbol = {}
     missing_reasons: dict[str, str] = {}
     provenance_by_symbol: dict[str, tuple[str, str]] = {}
+    local_meta_by_symbol: dict[str, tuple[str, int]] = {}
     with SqliteRepo(config.db_path()) as price_repo:
         price_repo.init_schema()
+        tw_store = TwLocalStore(price_repo.conn)
+        us_store = UsLocalStore(price_repo.conn)
+
+        def load_local(symbol: str, day: dt.date) -> dict:
+            return (tw_local.local_view(tw_store, symbol, day)
+                    if symbol.endswith((".TW", ".TWO")) else us_store.get_asof(day, symbol))
+
         for sym in rc.ALL_SYMBOLS:
             current = csv_audit.read_current(sym)
             adjusted = price_repo.get_adjusted_prices(sym)
@@ -114,9 +132,15 @@ def main(argv: list[str]) -> int:
             provenance_by_symbol[sym] = (
                 source, current[-1].as_of.strftime("%Y-%m-%d %H:%M"))
             scored = run_stock_scores.score_series(
-                sym, adjusted, net_by_date=chips_by_symbol.get(sym)
+                sym, adjusted, net_by_date=chips_by_symbol.get(sym), local_loader=load_local
             )
             rows_by_symbol[sym] = (scored, run_stock_scores.summarize_window(scored))
+            if sym in rc.US_STOCKS + rc.ADRS:
+                local = local_stock.score_us_local(us_store.get_asof(adjusted[-1].date, sym), adjusted[-1].date)
+                dated = [item for item in local.items if item.score is not None and item.data_date]
+                if dated:
+                    oldest = max(dated, key=lambda item: item.age_days)
+                    local_meta_by_symbol[sym] = (oldest.data_date, oldest.age_days)
 
     # 分數落地（§10，2026-09-18）。`run_daily.ps1` 的註解寫著「評分不在這裡跑，
     # publish.py 產頁面的時候會自己算」—— 那句話是對的，缺的是後半句：算完要
@@ -136,6 +160,7 @@ def main(argv: list[str]) -> int:
         local_by_symbol=local_by_symbol,
         local_coverage={name: (coverage.available, coverage.expected)
                         for name, coverage in local_result.coverage.items()},
+        local_meta_by_symbol=local_meta_by_symbol,
     )
     # enforce_lint=False：這一側可以有建議（§2.1）
     html = base_page.render(
