@@ -93,7 +93,8 @@ class StockPresenter:
     # ---------------- 備註欄：三期、籌碼、五日加權、但書 ----------------
 
     def _note(self, symbol: str, latest, history: list) -> str:
-        parts = [self._terms(latest.subscores)]
+        parts = [f"名稱來源：{rc.NAME_SOURCES.get(symbol, '設定檔')}",
+                 self._terms(latest.subscores)]
         technical = Coverage(sum(k in latest.subscores for k, _ in TERMS), len(TERMS))
         parts.append(technical.label("技術面"))
         if technical.degraded:

@@ -48,6 +48,7 @@ from research.pipeline import run_stock_scores  # noqa: E402
 from research.pipeline import tw_local  # noqa: E402
 from research.pipeline import us_local  # noqa: E402
 from research.pipeline import fundamentals  # noqa: E402
+from research.pipeline import names as name_directory  # noqa: E402
 from research.domain import local_stock  # noqa: E402
 from research.domain.fundamentals import FundamentalReport  # noqa: E402
 from research.render import page as rpage  # noqa: E402
@@ -59,12 +60,22 @@ SITE = credentials.STOCK_RESEARCH
 TITLE = "stock-research"
 TAGLINE = "台美權值股的三期評分，私人研究用，不對外分享"
 DOCS = _HERE / "docs"
+US_LOCAL_BATCH_SIZE = 25
 
 
 def main(argv: list[str]) -> int:
     dry = "--dry-run" in argv
     force = "--force" in argv
     config.ensure_dirs()
+    try:
+        official_names = name_directory.refresh(
+            config.stockdata_root(), rc.TW_STOCKS,
+            dt.datetime.now(ZoneInfo("Asia/Taipei")),
+        )
+        print(f"官方名稱 {len(official_names)}/{len(rc.TW_STOCKS)}")
+    except Exception as exc:
+        print(f"官方名稱暫不可得，沿用已保存對照表：{type(exc).__name__}: {exc}")
+    rc.refresh_display_names()
 
     # 台股才有三大法人資料 —— 一天抓一次全市場，抽出要的那五檔（§6 規則 5）
     tw_bars = csv_audit.read_current(rc.TW_STOCKS[0])
@@ -92,7 +103,8 @@ def main(argv: list[str]) -> int:
                            for symbol in rc.TW_STOCKS}
         us_result = us_local.run(UsLocalStore(chips_repo.conn),
                                  list(rc.US_STOCKS + rc.ADRS),
-                                 dt.datetime.now(ZoneInfo("Asia/Taipei")).date())
+                                 dt.datetime.now(ZoneInfo("Asia/Taipei")).date(),
+                                 cycle="auto", batch_size=US_LOCAL_BATCH_SIZE)
         fundamental_store = FundamentalStore(chips_repo.conn)
         fundamental_store.init_schema()
         fundamental_stamp = dt.datetime.now(ZoneInfo("Asia/Taipei"))
@@ -120,6 +132,8 @@ def main(argv: list[str]) -> int:
         print(f"{dataset}: {coverage.label('涵蓋率')}")
     for dataset, available in us_result.coverage.items():
         print(f"US {dataset}: {available}/{len(rc.US_STOCKS + rc.ADRS)}")
+    print(f"US 本地維度：本次 {us_result.processed} 檔，待續跑 {us_result.remaining} 檔"
+          f"（批次 {us_result.cycle}）")
     for symbol in rc.ALL_SYMBOLS:
         print(f"基本面 {symbol}: {fundamentals_by_symbol[symbol].coverage.label()}")
     for note in fundamental_result.notes:

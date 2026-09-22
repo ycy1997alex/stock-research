@@ -24,15 +24,22 @@ def main(argv: list[str]) -> int:
     parser.add_argument("symbols", nargs="*", help="default: configured US stocks and ADRs")
     parser.add_argument("--as-of", type=dt.date.fromisoformat,
                         default=dt.datetime.now(ZoneInfo("Asia/Taipei")).date())
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="maximum new symbols in this invocation")
+    parser.add_argument("--cycle", default="auto",
+                        help="stable batch identifier to resume on later days; default: automatic cycle")
     args = parser.parse_args(argv)
     symbols = args.symbols or list(config.US_STOCKS + config.ADRS)
     with SqliteRepo(bconfig.db_path()) as repo:
         repo.init_schema()
-        result = us_local.run(UsLocalStore(repo.conn), symbols, args.as_of)
+        result = us_local.run(UsLocalStore(repo.conn), symbols, args.as_of,
+                              cycle=args.cycle,
+                              batch_size=args.batch_size)
     for name, count in result.coverage.items():
         print(f"{name}: {count}/{len(symbols)}")
     for note in result.notes:
         print(f"資料不足：{note}")
+    print(f"本次完成 {result.processed} 檔；待續跑 {result.remaining} 檔；批次 {result.cycle}")
     return 0
 
 

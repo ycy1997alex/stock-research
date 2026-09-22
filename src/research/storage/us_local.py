@@ -14,6 +14,40 @@ class UsLocalStore:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
+    def init_batch_schema(self) -> None:
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS us_local_fetch_checkpoint ("
+            "cycle TEXT NOT NULL, symbol TEXT NOT NULL, completed_at TEXT NOT NULL, "
+            "PRIMARY KEY(cycle,symbol))"
+        )
+        self.conn.commit()
+
+    def completed_symbols(self, cycle: str) -> set[str]:
+        return {row[0] for row in self.conn.execute(
+            "SELECT symbol FROM us_local_fetch_checkpoint WHERE cycle=?", (cycle,)
+        )}
+
+    def active_auto_cycle(self, symbols: list[str], stamp: dt.datetime) -> str:
+        latest = self.conn.execute(
+            "SELECT cycle,MAX(completed_at) FROM us_local_fetch_checkpoint "
+            "WHERE cycle LIKE 'auto:%' GROUP BY cycle ORDER BY MAX(completed_at) DESC LIMIT 1"
+        ).fetchone()
+        if latest is not None:
+            cycle, last_completed = latest
+            if set(symbols) - self.completed_symbols(cycle):
+                return cycle
+            if last_completed[:10] == stamp.date().isoformat():
+                return cycle
+        return f"auto:{stamp.date().isoformat()}"
+
+    def mark_complete(self, cycle: str, symbol: str, stamp: dt.datetime) -> None:
+        self.conn.execute(
+            "INSERT INTO us_local_fetch_checkpoint(cycle,symbol,completed_at) VALUES(?,?,?) "
+            "ON CONFLICT(cycle,symbol) DO UPDATE SET completed_at=excluded.completed_at",
+            (cycle, symbol, stamp.isoformat()),
+        )
+        self.conn.commit()
+
     def put(self, symbol: str, dimension: str, data_date: dt.date,
             value: dict, source: str, retrieved_at: dt.datetime) -> None:
         if dimension not in {"institutional", "insider", "analyst"}:

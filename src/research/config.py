@@ -16,6 +16,7 @@ from barometer import config as barometer_config
 
 DEFAULT_UNIVERSE_PATH = Path(__file__).with_name("symbols.json")
 EXTERNAL_UNIVERSE_NAME = "research_symbols.json"
+NAME_DIRECTORY_FILE = "research_name_directory.json"
 _REQUIRED = frozenset({"symbol", "name", "market", "group"})
 _GROUP_MARKET = {"tw": "TW", "us": "US", "adr": "US"}
 
@@ -90,12 +91,41 @@ def active_universe(root: Path | None = None) -> Universe:
     return load_universe(override if override.exists() else DEFAULT_UNIVERSE_PATH)
 
 
+def load_display_names(universe: Universe, root: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """Trust TWSE names only for listed Taiwan symbols; label config fallbacks."""
+    names = dict(universe.names)
+    sources = {symbol: ("設定檔回退" if symbol in universe.tw_stocks else "設定檔")
+               for symbol in universe.all_symbols}
+    path = root / NAME_DIRECTORY_FILE
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return names, sources
+    if not isinstance(records, dict):
+        return names, sources
+    for symbol in universe.tw_stocks:
+        record = records.get(symbol)
+        if (isinstance(record, dict) and record.get("source") == "TWSE t187ap03_L"
+                and isinstance(record.get("name"), str) and record["name"].strip()):
+            names[symbol] = record["name"].strip()
+            sources[symbol] = "TWSE t187ap03_L"
+    return names, sources
+
+
+def refresh_display_names(root: Path | None = None) -> None:
+    names, sources = load_display_names(_UNIVERSE, root or barometer_config.stockdata_root())
+    NAMES.clear()
+    NAMES.update(names)
+    NAME_SOURCES.clear()
+    NAME_SOURCES.update(sources)
+
+
 _UNIVERSE = active_universe()
 TW_STOCKS = _UNIVERSE.tw_stocks
 US_STOCKS = _UNIVERSE.us_stocks
 ADRS = _UNIVERSE.adrs
 ALL_SYMBOLS = _UNIVERSE.all_symbols
-NAMES = _UNIVERSE.names
+NAMES, NAME_SOURCES = load_display_names(_UNIVERSE, barometer_config.stockdata_root())
 ADR_PAIRS = _UNIVERSE.adr_pairs
 PAIR_NOTES = _UNIVERSE.pair_notes
 THIN_LIQUIDITY = _UNIVERSE.thin_liquidity

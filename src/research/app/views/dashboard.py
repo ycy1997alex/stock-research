@@ -49,12 +49,28 @@ TITLE = "stock-research —— 台美權值股三期評分"
 DISCLAIMER = "五個交易日只有五個點，一律是定性觀察。本頁不構成投資建議。"
 
 
+def sort_view_rows(rows: list, column: str | None, descending: bool) -> list:
+    """Sort only after a heading click; retain the presenter's order otherwise."""
+    if column is None:
+        return list(rows)
+    if column == "value":
+        present = [row for row in rows if row.value is not None]
+        missing = [row for row in rows if row.value is None]
+        return sorted(present, key=lambda row: float(row.value),
+                      reverse=descending) + missing
+    present = [row for row in rows if getattr(row, column, None)]
+    missing = [row for row in rows if not getattr(row, column, None)]
+    return sorted(present, key=lambda row: getattr(row, column).casefold(),
+                  reverse=descending) + missing
+
+
 class StockDashboardWindow:
     def __init__(self, root: tk.Misc, presenter: StockPresenter) -> None:
         self.root = root
         self.presenter = presenter
         self._after_ids: set[str] = set()
         self._closing = False
+        self._sort: dict[str, tuple[str | None, bool]] = {}
 
         root.title(TITLE)
         self._box = window_box(root.winfo_screenwidth(), root.winfo_screenheight())
@@ -76,7 +92,7 @@ class StockDashboardWindow:
         for key, title in TAB_TITLES:
             frame = bs.Frame(self.nb)
             self.nb.add(frame, text=title)
-            self.trees[key] = self._make_tree(frame)
+            self.trees[key] = self._make_tree(frame, key)
 
         self.status = bs.Label(root, text="", anchor="w", padding=(10, 4))
         self.status.pack(fill=X)
@@ -109,11 +125,12 @@ class StockDashboardWindow:
 
     # ---------------- 版面 ----------------
 
-    def _make_tree(self, parent) -> bs.Treeview:
+    def _make_tree(self, parent, tab_key: str) -> bs.Treeview:
         tree = bs.Treeview(parent, columns=[c[0] for c in COLUMNS],
                            show="headings")
         for name, title, width in COLUMNS:
-            tree.heading(name, text=title)
+            tree.heading(name, text=title,
+                         command=lambda field=name, tab=tab_key: self._sort_column(tab, field))
             tree.column(name, width=width, anchor="w")
         vs = bs.Scrollbar(parent, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=vs.set)
@@ -128,10 +145,22 @@ class StockDashboardWindow:
     def _fill(self, key: str) -> None:
         tree = self.trees[key]
         tree.delete(*tree.get_children())
-        for r in self.presenter.load(key):
+        column, descending = self._sort.get(key, (None, False))
+        for r in sort_view_rows(self.presenter.load(key), column, descending):
             tree.insert("", "end", values=(
                 r.label, r.value or "—", r.data_date or "—", r.freq, r.note,
             ))
+
+    def _sort_column(self, key: str, column: str) -> None:
+        current, descending = self._sort.get(key, (None, False))
+        if current != column:
+            state = (column, False)
+        elif not descending:
+            state = (column, True)
+        else:
+            state = (None, False)
+        self._sort[key] = state
+        self._fill(key)
 
     def _reload_current(self) -> None:
         if self._closing:

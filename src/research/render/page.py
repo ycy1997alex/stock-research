@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 from barometer.render.page import Row, Tab
 from barometer.domain.coverage import Coverage
 
@@ -67,7 +69,8 @@ def _stock_row(
             else f"籌碼 {scoring_stock.INSUFFICIENT}"
         )
 
-    notes = ["可比分數只看台美共用的還原 OHLCV；本地分數另加入市場專屬維度，兩者回答不同問題。",
+    notes = [f"名稱來源：{rc.NAME_SOURCES.get(symbol, '設定檔')}",
+             "可比分數只看台美共用的還原 OHLCV；本地分數另加入市場專屬維度，兩者回答不同問題。",
              "／".join(terms)]
     if latest.strength is not None:
         notes.append(f"強度 C {latest.strength:.1f}（不進方向分與星等）")
@@ -132,7 +135,8 @@ def build_tabs(
             if got is None:
                 out.append(Row(label=f"{s} {rc.NAMES.get(s, '')}".strip(),
                                value=None, data_date=None,
-                               note=(missing_reasons or {}).get(s, "本機沒有序列"),
+                               note=(missing_reasons or {}).get(s, "本機沒有序列")
+                               + f"；名稱來源：{rc.NAME_SOURCES.get(s, '設定檔')}",
                                fundamental_coverage=(fundamentals_by_symbol or {}).get(s, FundamentalReport(s, {})).coverage
                                if fundamentals_by_symbol is not None else None))
                 continue
@@ -151,7 +155,7 @@ def build_tabs(
         tabs.extend(_local_tabs(local_by_symbol, local_coverage or {}))
     if fundamentals_by_symbol is not None:
         tabs.extend(_fundamental_tabs(fundamentals_by_symbol))
-    return tabs
+    return [replace(tab, sortable=True) for tab in tabs]
 
 
 _FUNDAMENTAL_KEYS = dict(zip(GROUPS, ("valuation", "profitability", "growth", "structure")))
