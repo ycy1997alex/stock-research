@@ -74,6 +74,27 @@ def refresh(store: FundamentalStore, tw_symbols: tuple[str, ...] | list[str],
     return Result(coverage, tuple(notes))
 
 
+def merge_quarter_history(store: FundamentalStore, symbols, history: dict,
+                          stamp: dt.datetime) -> dict[str, int]:
+    """把一次性補到的季別併進**今天**這一份快照，回每檔併完後的季別數。
+
+    只動 `quarters`，今天抓到的欄位原封不動。補回來的季別掛在今天的觀測日底下 ——
+    官方那張表給不出財報首次公開日，所以它們標的是取得日，不是公開日（回補批 R-4）。
+    """
+    filled: dict[str, int] = {}
+    for symbol in symbols:
+        current = store.get_asof(symbol, stamp.date())
+        if current is None:
+            filled[symbol] = 0
+            continue
+        quarters = {quarter.period: quarter for quarter in history.get(symbol, ())}
+        quarters.update({quarter.period: quarter for quarter in current.quarters})
+        merged = tuple(quarters[key] for key in sorted(quarters))
+        store.put(FundamentalReport(symbol, current.metrics, merged, current.industry), stamp)
+        filled[symbol] = len(merged)
+    return filled
+
+
 def _metric(value: object, provenance: dict, period: str | None = None) -> Metric:
     date_text = provenance.get("data_date")
     stamp_text = provenance.get("retrieved_at")

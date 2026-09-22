@@ -13,7 +13,9 @@ from collections.abc import Mapping
 
 import requests
 
-from research.domain.fundamentals import FundamentalReport, Metric, QuarterMetrics
+from research.domain.fundamentals import (
+    CUMULATIVE, SINGLE_QUARTER, FundamentalReport, Metric, QuarterMetrics,
+)
 
 TW_URLS = {
     "ratios": "https://openapi.twse.com.tw/v1/opendata/t187ap17_L",
@@ -22,6 +24,7 @@ TW_URLS = {
 }
 TW_SOURCE = "TWSE 公開財報摘要（取得日快照；出表日非財報首次公開日）"
 US_SOURCE = "Yahoo Finance 財報摘要（取得日快照；季末非發布日）"
+_UA = "stock-research/0.1 (personal research)"
 GROSS_KEY = "毛利率(%)(營業毛利)/(營業收入)"
 OPERATING_KEY = "營業利益率(%)(營業利益)/(營業收入)"
 
@@ -90,9 +93,59 @@ def parse_tw_official(payloads: Mapping[str, list[dict]],
         metrics = {key: Metric(value, TW_SOURCE, stamp.date(), stamp, period,
                                "財報期別與資料取得日分開；未取得正式首次發布日")
                    for key, value in values.items()}
-        quarter = QuarterMetrics(period, values["gross_margin_pct"], stamp.date())
+        quarter = QuarterMetrics(period, values["gross_margin_pct"], stamp.date(), CUMULATIVE)
         reports[symbol] = FundamentalReport(symbol, metrics, (quarter,))
     return reports
+
+
+# `t187ap17_L` 只回最新一季（實測 1,053 列全是 115Q2），歷史季別要另外問。
+# 這個位址與表單欄位是 2026-09-22 實測出來的，不是照文件抄的（§9.1、0-1）。
+MOPS_QUARTER_URL = "https://mopsov.twse.com.tw/mops/web/ajax_t163sb06"
+TW_QUARTER_SOURCE = ("TWSE 公開資訊觀測站 營益分析查詢彙總表 t163sb06"
+                     "（累計至該季；取得日快照，非財報首次公開日）")
+# 每列七格：代號、名稱、營業收入(百萬)、毛利率、營業利益率、稅前純益率、稅後純益率
+_MOPS_COLUMNS = 7
+_MOPS_GROSS_INDEX = 3
+
+
+def mops_quarter_params(period: str) -> dict[str, str]:
+    """`2025Q3` → 民國年與季別。觀測站吃的是 ROC 年，不是西元年。"""
+    year, quarter = period.split("Q")
+    return {"year": str(int(year) - 1911), "season": f"{int(quarter):02d}"}
+
+
+def parse_tw_quarter_page(html: str, period: str, stamp: dt.datetime) -> dict[str, QuarterMetrics]:
+    """抽出每一檔的累計毛利率。算不出來的格子留 `None`，不填 0。"""
+    parsed: dict[str, QuarterMetrics] = {}
+    for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
+        cells = [re.sub(r"<[^>]+>", "", cell).replace("　", " ").strip()
+                 for cell in re.findall(r"<td[^>]*>(.*?)</td>", row, re.S)]
+        if len(cells) != _MOPS_COLUMNS:
+            continue
+        code = cells[0]
+        if not (len(code) == 4 and code.isdigit()):
+            continue
+        parsed[f"{code}.TW"] = QuarterMetrics(
+            period, _number(cells[_MOPS_GROSS_INDEX]), stamp.date(), CUMULATIVE)
+    return parsed
+
+
+def fetch_tw_quarter_history(periods, stamp: dt.datetime,
+                             post=requests.post) -> dict[str, tuple[QuarterMetrics, ...]]:
+    """一季一次全市場，抽要的那幾檔（§2.6）。一次性回補用，不排進每日管線。"""
+    collected: dict[str, list[QuarterMetrics]] = {}
+    for index, period in enumerate(sorted(periods)):
+        if index:
+            time.sleep(0.6)
+        response = post(MOPS_QUARTER_URL,
+                        data={"encodeURIComponent": "1", "step": "1", "firstin": "1",
+                              "off": "1", "TYPEK": "sii", **mops_quarter_params(period)},
+                        timeout=30, headers={"User-Agent": _UA})
+        response.raise_for_status()
+        for symbol, quarter in parse_tw_quarter_page(response.text, period, stamp).items():
+            collected.setdefault(symbol, []).append(quarter)
+    return {symbol: tuple(sorted(items, key=lambda q: q.period))
+            for symbol, items in collected.items()}
 
 
 def fetch_tw_official(stamp: dt.datetime, get=requests.get) -> dict[str, FundamentalReport]:
@@ -126,7 +179,8 @@ def _quarter_history(frame, stamp: dt.datetime) -> tuple[QuarterMetrics, ...]:
         revenue = _number(frame.loc["Total Revenue", col])
         value = gross / revenue * 100 if gross is not None and revenue is not None and revenue > 0 else None
         quarter = (period_end.month - 1) // 3 + 1
-        quarters.append(QuarterMetrics(f"{period_end.year}Q{quarter}", value, stamp.date()))
+        quarters.append(QuarterMetrics(f"{period_end.year}Q{quarter}", value,
+                                       stamp.date(), SINGLE_QUARTER))
     return tuple(sorted(quarters, key=lambda q: q.period))
 
 
