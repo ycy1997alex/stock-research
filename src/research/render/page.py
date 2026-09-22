@@ -17,6 +17,8 @@ from barometer.domain.coverage import Coverage
 
 from research import config as rc
 from research.domain import scoring_stock
+from research.domain.fundamentals import (FundamentalReport, GROUPS, LABELS,
+                                          PERCENT_FIELDS, rule_theses)
 
 TW_INTRO = (
     "台股追蹤標的。顯示單位「張」，資料層一律存「股」，換算只在顯示層做。"
@@ -50,6 +52,7 @@ def _stock_row(
     fetched_at: str | None = None,
     local_data_date: str | None = None,
     local_age_days: int | None = None,
+    fundamental: FundamentalReport | None = None,
 ) -> Row:
     latest_date, latest = scored[-1]
     terms = []
@@ -108,7 +111,7 @@ def _stock_row(
             sum(term.score is not None for term in
                 (latest.short, latest.mid, latest.long)), 3),
         coverage_name="技術面",
-        fundamental_coverage=Coverage(0, 0),
+        fundamental_coverage=fundamental.coverage if fundamental is not None else Coverage(0, 0),
     )
 
 
@@ -119,6 +122,7 @@ def build_tabs(
     local_by_symbol: dict[str, dict] | None = None,
     local_coverage: dict[str, tuple[int, int]] | None = None,
     local_meta_by_symbol: dict[str, tuple[str, int]] | None = None,
+    fundamentals_by_symbol: dict[str, FundamentalReport] | None = None,
 ) -> list[Tab]:
     """`rows_by_symbol[symbol] = (scored, summary)`，由 pipeline 那側算好餵進來。"""
     def rows_for(symbols):
@@ -128,11 +132,14 @@ def build_tabs(
             if got is None:
                 out.append(Row(label=f"{s} {rc.NAMES.get(s, '')}".strip(),
                                value=None, data_date=None,
-                               note=(missing_reasons or {}).get(s, "本機沒有序列")))
+                               note=(missing_reasons or {}).get(s, "本機沒有序列"),
+                               fundamental_coverage=(fundamentals_by_symbol or {}).get(s, FundamentalReport(s, {})).coverage
+                               if fundamentals_by_symbol is not None else None))
                 continue
             provenance = (provenance_by_symbol or {}).get(s, ("", None))
             local_meta = (local_meta_by_symbol or {}).get(s, (None, None))
-            out.append(_stock_row(s, *got, *provenance, *local_meta))
+            out.append(_stock_row(s, *got, *provenance, *local_meta,
+                                  fundamental=(fundamentals_by_symbol or {}).get(s)))
         return out
 
     tabs = [
@@ -142,6 +149,69 @@ def build_tabs(
     ]
     if local_by_symbol is not None:
         tabs.extend(_local_tabs(local_by_symbol, local_coverage or {}))
+    if fundamentals_by_symbol is not None:
+        tabs.extend(_fundamental_tabs(fundamentals_by_symbol))
+    return tabs
+
+
+_FUNDAMENTAL_KEYS = dict(zip(GROUPS, ("valuation", "profitability", "growth", "structure")))
+_FUNDAMENTAL_NOTE = "資料來自公開財報摘要，口徑可能與正式財報不同。季末／所屬月份不是首次公開日；各列另標取得日。"
+
+
+def _fundamental_tabs(reports: dict[str, FundamentalReport]) -> list[Tab]:
+    tabs = []
+    for group, fields in GROUPS.items():
+        rows = []
+        for symbol in rc.ALL_SYMBOLS:
+            report = reports.get(symbol, FundamentalReport(symbol, {}))
+            valid = [report.metric(key) for key in fields if report.metric(key).status == "OK"]
+            values = [f"{LABELS[key]} {report.metric(key).value:.2f}{'%' if key in PERCENT_FIELDS else ''}"
+                      for key in fields if report.metric(key).status == "OK"]
+            missing = [LABELS[key] for key in fields if report.metric(key).status != "OK"]
+            detail = [f"{LABELS[key]}：{report.metric(key).source or '來源未知'}；"
+                      f"資料取得日 {report.metric(key).data_date or '未知'}；"
+                      f"所屬期間 {report.metric(key).period or '未提供'}"
+                      for key in fields if report.metric(key).status == "OK"]
+            if missing:
+                detail.append("資料不足：" + "、".join(missing))
+            if not report.quarters:
+                detail.append("自身歷史季報比較：資料不足")
+            rows.append(Row(
+                label=f"{symbol} {rc.NAMES.get(symbol, '')}".strip(),
+                value="｜".join(values) if values else None,
+                data_date=max((item.data_date for item in valid if item.data_date), default=None).isoformat()
+                if any(item.data_date for item in valid) else None,
+                freq="每日／季報" if group == "估值" else "季報／月報" if group == "成長" else "季報",
+                note="；".join(detail),
+                source="、".join(dict.fromkeys(item.source for item in valid if item.source)),
+                fetched_at=max((item.retrieved_at for item in valid if item.retrieved_at), default=None).isoformat()
+                if any(item.retrieved_at for item in valid) else None,
+                coverage=Coverage(len(valid), len(fields)), coverage_name=group,
+                fundamental_coverage=report.coverage,
+            ))
+        intro = _FUNDAMENTAL_NOTE
+        if group == "估值":
+            intro += "台股本益比、殖利率與淨值比採 TWSE；ADR 採 Yahoo，兩者 EPS 期間口徑可能不同。"
+        tabs.append(Tab(key=f"fundamental_{_FUNDAMENTAL_KEYS[group]}",
+                        title=f"基本面：{group}", rows=rows, intro=intro))
+    thesis_rows = []
+    for symbol in rc.ALL_SYMBOLS:
+        report = reports.get(symbol, FundamentalReport(symbol, {}))
+        theses = rule_theses(report)
+        bulls = sum(thesis.side == "多方" for thesis in theses)
+        bears = sum(thesis.side == "空方" for thesis in theses)
+        thesis_rows.append(Row(
+            label=f"{symbol} {rc.NAMES.get(symbol, '')}".strip(),
+            value=f"多方 {bulls} 項｜空方 {bears} 項" if theses else None,
+            data_date=max((metric.data_date for metric in report.metrics.values()
+                           if metric.data_date), default=None).isoformat()
+            if any(metric.data_date for metric in report.metrics.values()) else None,
+            freq="季報／月報", note="；".join(f"{thesis.side}：{thesis.text}" for thesis in theses)
+            if theses else "資料不足：尚無可比較的成長或連續季報資料",
+            fundamental_coverage=report.coverage,
+        ))
+    tabs.append(Tab(key="fundamental_theses", title="基本面：規則式論點",
+                    rows=thesis_rows, intro=_FUNDAMENTAL_NOTE + "論點只描述可核對的變化。"))
     return tabs
 
 

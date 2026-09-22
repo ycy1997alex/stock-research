@@ -47,10 +47,13 @@ from research.datasources import chips_tw  # noqa: E402
 from research.pipeline import run_stock_scores  # noqa: E402
 from research.pipeline import tw_local  # noqa: E402
 from research.pipeline import us_local  # noqa: E402
+from research.pipeline import fundamentals  # noqa: E402
 from research.domain import local_stock  # noqa: E402
+from research.domain.fundamentals import FundamentalReport  # noqa: E402
 from research.render import page as rpage  # noqa: E402
 from research.storage.tw_local import TwLocalStore  # noqa: E402
 from research.storage.us_local import UsLocalStore  # noqa: E402
+from research.storage.fundamentals import FundamentalStore  # noqa: E402
 
 SITE = credentials.STOCK_RESEARCH
 TITLE = "stock-research"
@@ -90,6 +93,25 @@ def main(argv: list[str]) -> int:
         us_result = us_local.run(UsLocalStore(chips_repo.conn),
                                  list(rc.US_STOCKS + rc.ADRS),
                                  dt.datetime.now(ZoneInfo("Asia/Taipei")).date())
+        fundamental_store = FundamentalStore(chips_repo.conn)
+        fundamental_store.init_schema()
+        fundamental_stamp = dt.datetime.now(ZoneInfo("Asia/Taipei"))
+        fundamental_result = fundamentals.refresh(
+            fundamental_store, rc.TW_STOCKS, rc.US_STOCKS + rc.ADRS,
+            fundamental_stamp,
+        )
+        fundamentals_by_symbol = {
+            symbol: fundamentals.compose_tw_report(
+                symbol, local_by_symbol[symbol],
+                fundamental_store.get_asof(symbol, fundamental_stamp.date()),
+                fundamental_stamp.date(),
+            ) for symbol in rc.TW_STOCKS
+        }
+        fundamentals_by_symbol.update({
+            symbol: fundamental_store.get_asof(symbol, fundamental_stamp.date())
+                    or FundamentalReport(symbol, {})
+            for symbol in rc.US_STOCKS + rc.ADRS
+        })
     for n in notes:
         print(f"  ! {n}")
     for note in local_result.notes:
@@ -98,6 +120,10 @@ def main(argv: list[str]) -> int:
         print(f"{dataset}: {coverage.label('涵蓋率')}")
     for dataset, available in us_result.coverage.items():
         print(f"US {dataset}: {available}/{len(rc.US_STOCKS + rc.ADRS)}")
+    for symbol in rc.ALL_SYMBOLS:
+        print(f"基本面 {symbol}: {fundamentals_by_symbol[symbol].coverage.label()}")
+    for note in fundamental_result.notes:
+        print(f"  ! {note}")
     chips_by_symbol = {s: dict(zip(tw_days, v)) for s, v in per_symbol.items()}
 
     rows_by_symbol = {}
@@ -161,6 +187,7 @@ def main(argv: list[str]) -> int:
         local_coverage={name: (coverage.available, coverage.expected)
                         for name, coverage in local_result.coverage.items()},
         local_meta_by_symbol=local_meta_by_symbol,
+        fundamentals_by_symbol=fundamentals_by_symbol,
     )
     # enforce_lint=False：這一側可以有建議（§2.1）
     html = base_page.render(
