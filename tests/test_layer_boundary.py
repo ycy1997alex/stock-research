@@ -87,3 +87,38 @@ def test_assembly_root_is_the_only_place_that_knows_both():
     assert any(
         part in FORBIDDEN for mod in mods for part in mod.split(".")
     ), "組裝根沒有 import 任何資料層 —— 接線是不是搬到表現層去了？"
+
+
+# ---- 回補批 R-1：domain 不得依賴 pandas / numpy ----
+#
+# barometer 那側原本只有 `tests/domain/test_fifth_indicators.py` 掃 `indicators.py`
+# 一支；5-2~5-7 真正住的是這個 repo 的 `domain/`，卻完全沒有守衛。
+# 純 Python list 版本是刻意的（§9.1 第 6 條），不是還沒來得及改。
+
+DATAFRAME_LIBS = ("pandas", "numpy")
+
+
+def _domain_files() -> list[Path]:
+    d = SRC / "domain"
+    return sorted(d.rglob("*.py")) if d.is_dir() else []
+
+
+def test_there_is_a_domain_to_guard():
+    """同 `test_there_is_something_to_guard`：資料夾改名不得讓守衛安靜地失效。"""
+    assert _domain_files(), "domain/ 底下一支 .py 都沒有，下面那條守衛等於沒在守"
+
+
+@pytest.mark.parametrize("path", _domain_files(), ids=lambda p: p.name)
+def test_domain_does_not_import_dataframe_libraries(path: Path):
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+    hits = [
+        mod
+        for mod in _imported_modules(tree)
+        if mod.split(".")[0] in DATAFRAME_LIBS
+    ]
+
+    assert not hits, (
+        f"{path.relative_to(SRC)} import 了 {sorted(set(hits))} —— "
+        "domain 要維持純 Python list 版本（§9.1 第 6 條）。"
+    )
