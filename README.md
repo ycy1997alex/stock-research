@@ -104,9 +104,9 @@ pytest -q
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\register_tasks.ps1
 ```
 
-`register_tasks.ps1` 建兩班：`Research-Daily`（18:10 抓 15 檔）與 `Research-Publish`（22:45 發布）。後者呼叫 `tools/publish_and_push.ps1`：`publish.py` → 有變才 `git add -- docs` → commit → push → Actions 部署 Pages。它只動得到 `docs/` 底下那一份兩層鎖密文，每次都在 `%STOCKDATA_ROOT%\runlog\publish_push.log` 留一行。
+`register_tasks.ps1` 建兩班：`Research-Daily`（18:10 抓 15 檔）與 `Research-Publish`（21:55 發布），都經由 `pythonw.exe tools\run_hidden.py` 在背景執行，不會跳出終端機視窗搶走焦點；`.ps1` 的結束代碼原樣傳回給排程器。後者呼叫 `tools/publish_and_push.ps1`：`publish.py` → 有變才 `git add -- docs` → commit → push → Actions 部署 Pages。它只動得到 `docs/` 底下那一份兩層鎖密文，每次都在 `%STOCKDATA_ROOT%\runlog\publish_push.log` 留一行。
 
-排在 22:45 是因為個股評分要吃三大法人，而 market-barometer 的籌碼補班在 22:30 —— **兩個 repo 的排程各自獨立註冊，不互相呼叫**：一邊掛掉不該把另一邊也拖下水。
+排在 21:55 是因為個股評分要吃三大法人，而 market-barometer 的籌碼補班在 21:45 —— **兩個 repo 的排程各自獨立註冊，不互相呼叫**：一邊掛掉不該把另一邊也拖下水。
 
 
 > ⚠️ **`conda activate` 在某些 PowerShell 環境會靜默失效。** 如果 shell 沒有被 `conda init` 過（作者這台就是），`conda activate barometer` 會回傳 exit 0 然後什麼都沒做 —— `python` 仍然指向 base，**不會有任何錯誤訊息**，直到後面某個套件找不到才爆出來。

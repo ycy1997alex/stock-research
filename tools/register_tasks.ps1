@@ -15,14 +15,21 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Tools = Join-Path $RepoRoot "tools"
 
+# 排程動作不直接跑 powershell.exe —— 那樣每一班都會跳出終端機視窗搶走焦點。
+# 改由 pythonw.exe（沒有主控台）執行 run_hidden.py，它再以不開視窗的方式跑 .ps1，
+# 並把結束代碼原樣傳回。為什麼不用 -WindowStyle Hidden 等其他作法，寫在 run_hidden.py 開頭。
+$PythonW = "C:\Users\Alex\anaconda3\envs\barometer\pythonw.exe"
+$Launcher = Join-Path $Tools "run_hidden.py"
+foreach ($p in $PythonW, $Launcher) { if (-not (Test-Path $p)) { throw "missing: $p" } }
+
 # 時刻表的理由：
 #   18:10 抓 15 檔 —— 排在 Barometer-Daily-TW（18:00）之後。美股那五檔拿到的是
 #         昨夜收盤，跟 barometer 早上 09:00 抓到的是同一根，不會比較舊
-#   22:45 發布 —— 排在 Barometer-Chips-TW-Late（22:30）與 Barometer-Publish
-#         （22:40）之後：個股評分要吃三大法人，等籌碼面全部落地再產頁面
+#   21:55 發布 —— 排在 Barometer-Chips-TW-Late（21:45）與 Barometer-Publish
+#         （21:50）之後：個股評分要吃三大法人，等籌碼面全部落地再產頁面
 $Tasks = @(
     @{ Name = "Research-Daily";   At = "18:10"; Script = "run_daily.ps1";        Desc = "stock-research daily fetch (15 symbols)" },
-    @{ Name = "Research-Publish"; At = "22:45"; Script = "publish_and_push.ps1"; Desc = "stock-research publish + push docs/" }
+    @{ Name = "Research-Publish"; At = "21:55"; Script = "publish_and_push.ps1"; Desc = "stock-research publish + push docs/" }
 )
 
 # --- 備份現有定義 ---
@@ -59,8 +66,8 @@ foreach ($t in $Tasks) {
     $script = Join-Path $Tools $t.Script
     if (-not (Test-Path $script)) { throw "missing script: $script" }
 
-    $argList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ('"' + $script + '"'))
-    $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ($argList -join " ")
+    $argList = @(('"' + $Launcher + '"'), ('"' + $script + '"'))
+    $action = New-ScheduledTaskAction -Execute $PythonW -Argument ($argList -join " ")
     $trigger = New-ScheduledTaskTrigger -Daily -At $t.At
 
     Register-ScheduledTask -TaskName $t.Name -Action $action -Trigger $trigger `

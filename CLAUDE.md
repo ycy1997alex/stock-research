@@ -114,7 +114,7 @@ AppUserModelID 是 `alexyu.stock-research`，跟 market-barometer **刻意不同
 
 **`docs/` 由排程自動 commit + push；其他一律作者發動。**
 
-`tools/publish_and_push.ps1`（排程任務 `Research-Publish`，每天 22:45）跑完 `publish.py` 之後會自己 `git add -- docs` → commit → `git push origin HEAD`，push 進 master 就觸發 Actions 部署 Pages。這是刻意開的例外，撐著它的是三件事：
+`tools/publish_and_push.ps1`（排程任務 `Research-Publish`，每天 21:55）跑完 `publish.py` 之後會自己 `git add -- docs` → commit → `git push origin HEAD`，push 進 master 就觸發 Actions 部署 Pages。這是刻意開的例外，撐著它的是三件事：
 
 1. **它動得到的只有 `docs/` 底下那一份密文** —— 而且這裡是**兩層鎖**，進 git 的東西連外層都要有 Key 才打得開。只 stage `docs/`，不用 `git add -A`、不用 `git add .`、永遠不用 `-f`（`-f` 會繞過 `.gitignore`，而 `secrets/`、`Key/` 正是靠它擋著）。
 2. **進來時 index 不是空的就中止。** 作者手上 staged 的東西，排程不碰、也不替他 reset 掉。
