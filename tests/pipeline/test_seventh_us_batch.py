@@ -21,8 +21,11 @@ def test_batch_resumes_across_days_in_configured_order(tmp_path, monkeypatch):
     with SqliteRepo(tmp_path / "db.sqlite") as repo:
         repo.init_schema()
         store = UsLocalStore(repo.conn)
+        # retrieved_at 要釘住：不傳就是「現在」，第二次查 9/23 時，as-of 規則會
+        # 正確地排除「之後才取得」的 A、B，覆蓋數就跟著實際日期變
         first = run(store, ["B", "A", "C"], dt.date(2026, 9, 22),
-                    cycle="2026-09-research", batch_size=2, fetch=_fetch(calls))
+                    cycle="2026-09-research", batch_size=2, fetch=_fetch(calls),
+                    retrieved_at=dt.datetime(2026, 9, 22, 10))
         assert calls == ["B", "A"]
         assert (first.processed, first.remaining) == (2, 1)
         assert repo.conn.execute("SELECT status FROM run_log WHERE task='us_local' ORDER BY started_at DESC LIMIT 1").fetchone()[0] == "partial"
