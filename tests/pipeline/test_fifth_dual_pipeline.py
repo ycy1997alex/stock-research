@@ -27,6 +27,23 @@ def test_ohlcv_and_asof_tw_local_feed_native_only():
     assert tw.strength is not None
 
 
+def test_local_items_reach_the_score_with_their_own_dates_and_sources():
+    """頁面把本地維度排成欄（名稱／說明／狀態／資料日／延遲／來源）。
+    那些欄位不能從 reasons 字串拆回來 —— 結構化的 LocalItem 要一路帶到分數上。"""
+    bars = _bars("2330.TW")
+    day = bars[-1].date
+    view = {"local": {"day_trade": {"day_trade_ratio_pct": 40.0}},
+            "provenance": {"day_trade": {"data_date": day.isoformat(), "source": "TWSE"}}}
+    tw = run_stock_scores.score_series("2330.TW", bars, local_loader=lambda s, d: view)[-1][1]
+    items = {item.name: item for item in tw.local_items}
+    assert items["F 當沖比"].status == "有效"
+    assert items["F 當沖比"].data_date == day.isoformat()
+    assert items["F 當沖比"].age_days == 0
+    assert items["F 當沖比"].source == "TWSE"
+    assert items["A 官方估值"].status == "資料不足"
+    assert len(tw.local_items) == len(tw.local_reasons)
+
+
 def test_run_persists_both_scores_and_strength(tmp_path, monkeypatch):
     monkeypatch.setenv("STOCKDATA_ROOT", str(tmp_path))
     bars = _bars("2330.TW")

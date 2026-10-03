@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from barometer.domain import indicators as ind
 
 from research.domain import technical_stock
+from research.domain.local_stock import LocalItem
 
 INSUFFICIENT = "資料不足"
 MIN_SHORT = 20
@@ -143,6 +144,9 @@ class StockScore:
     strength: float | None = None
     local: float | None = None
     local_reasons: tuple[str, ...] = ()
+    # 跟 local_reasons 是同一批觀測；頁面要逐欄排版（狀態、資料日、延遲、來源），
+    # 所以結構化的那一份也帶著，不從字串拆回來。
+    local_items: tuple[LocalItem, ...] = ()
 
     @property
     def technical(self) -> float | None:
@@ -242,6 +246,7 @@ def score_stock(symbol: str, closes: list[float | None],
                 lows: list[float | None] | None = None,
                 volumes: list[float | None] | None = None,
                 local_score: float | None = None, local_reasons: tuple[str, ...] = (),
+                local_items: tuple[LocalItem, ...] = (),
                 native_weight: float | None = None) -> StockScore:
     from research import config
 
@@ -288,4 +293,4 @@ def score_stock(symbol: str, closes: list[float | None],
     item_scores = [item.score for term in (short, mid, long) for item in term.items]
     strength = technical_stock.strength_axis(values, highs, lows, volumes, item_scores) if values else None
     return StockScore(symbol, short, mid, long, chips, caveats, pair, strength,
-                      local_score, local_reasons)
+                      local_score, local_reasons, local_items)

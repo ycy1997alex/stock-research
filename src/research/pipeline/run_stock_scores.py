@@ -47,6 +47,7 @@ def score_series(
             vol_series = [b.volume_shares for b in recent]
         local_score = None
         local_reasons: tuple[str, ...] = ()
+        local_items: tuple[local_stock.LocalItem, ...] = ()
         if local_loader is not None:
             view = local_loader(symbol, day)
             if symbol.endswith((".TW", ".TWO")):
@@ -54,7 +55,7 @@ def score_series(
                 result = local_stock.score_tw_local(view, day, chips.score if chips else None)
             else:
                 result = local_stock.score_us_local(view, day)
-            local_score, local_reasons = result.score, result.reasons
+            local_score, local_reasons, local_items = result.score, result.reasons, result.items
         out.append(
             (day, scoring_stock.score_stock(symbol, closes, net_series, vol_series,
                                             opens=[b.open for b in upto],
@@ -62,7 +63,8 @@ def score_series(
                                             lows=[b.low for b in upto],
                                             volumes=[b.volume_shares for b in upto],
                                             local_score=local_score,
-                                            local_reasons=local_reasons))
+                                            local_reasons=local_reasons,
+                                            local_items=local_items))
         )
     return out
 
