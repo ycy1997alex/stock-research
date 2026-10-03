@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from barometer.render import page as base_page
 from research.render import page as rpage
+from research.render import sections
 
 
 def test_local_page_displays_independent_provenance_coverage_and_adr_absence():
@@ -12,12 +12,12 @@ def test_local_page_displays_independent_provenance_coverage_and_adr_absence():
             "comparable": None, "native": None}
     tabs = rpage.build_tabs({}, local_by_symbol={"2330.TW": view},
                             local_coverage={"valuation": (1, 5)})
-    html = base_page.render(tabs, title="測試", tagline="資料維度", enforce_lint=False)
+    html = rpage.render_page(tabs, title="測試", tagline="資料維度", last_run_at=None)
     assert "官方估值" in html
     assert "28.52" in html
     assert "TWSE BWIBBU_ALL" in html
     assert "2026-09-18" in html
-    assert "2026-09-21T10:15:00" in html
+    assert "2026-09-21 10:15" in html
     assert "1/5" in html
     assert "無對應資料" in html  # ADR rows
 
@@ -31,9 +31,10 @@ def test_revenue_is_separate_and_maintenance_is_marked_estimate():
         "fundamental_provenance": {"revenue": {"source": "TWSE t187ap05_L", "data_date": "2026-09-17", "retrieved_at": stamp}},
     }
     tabs = rpage.build_tabs({}, local_by_symbol={"2330.TW": view})
-    assert tabs[-2].title == "台股本地維度"
-    assert tabs[-1].title == "台股月營收（獨立）"
-    html = base_page.render(tabs, title="測試", tagline="資料維度", enforce_lint=False)
+    assert tabs[-2].title == "本地維度"
+    assert tabs[-1].title == "月營收（獨立）"
+    assert tabs[-2].group == tabs[-1].group == "台股本地"
+    html = rpage.render_page(tabs, title="測試", tagline="資料維度", last_run_at=None)
     assert "推算值" in html
     assert "514,805,337 仟元" in html
     assert "不進任何分數" in html
@@ -42,6 +43,6 @@ def test_revenue_is_separate_and_maintenance_is_marked_estimate():
 def test_tdcc_page_shows_actual_grade_share_not_just_grade_count():
     value = {"grades": {"1": {"holder_count": 2, "shares": 100, "custody_pct": 1.0},
                         "15": {"holder_count": 3, "shares": 900, "custody_pct": 9.0}}}
-    rendered = rpage._local_value("distribution", value)
-    assert "第1級 1.00%" in rendered
-    assert "第15級 9.00%" in rendered
+    lines = sections._local_lines("distribution", value)
+    assert ("第1級", "1.00%") in lines
+    assert ("第15級", "9.00%") in lines

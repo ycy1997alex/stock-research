@@ -36,7 +36,7 @@ from research.domain import scoring_stock
 SCOPE = "stock"
 WINDOW = 5  # 五日視窗（§8.1）
 
-# 兩個分頁，跟網頁那側一致。
+# 兩個分頁，跟網頁那側「評分」組底下的兩頁一致。
 TABS: dict[str, tuple[str, ...]] = {
     "tw": rc.TW_STOCKS,
     "us": rc.US_STOCKS + rc.ADRS,

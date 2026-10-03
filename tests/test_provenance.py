@@ -14,7 +14,7 @@ def test_research_row_receives_actual_underlying_source_and_fetch_time():
         provenance_by_symbol={symbol: ("價格：twse_stock_day_all；籌碼：TWSE T86",
                                        "2026-09-20 18:00")},
     )
-    row = next(row for tab in tabs for row in tab.rows if row.label.startswith(symbol))
-    assert row.source == "價格：twse_stock_day_all；籌碼：TWSE T86"
-    assert row.data_date == day.isoformat()
-    assert row.fetched_at == "2026-09-20 18:00"
+    body = next(tab for tab in tabs if tab.key == "tw").body
+    assert "價格：twse_stock_day_all；籌碼：TWSE T86" in body
+    assert day.isoformat() in body
+    assert "2026-09-20 18:00" in body

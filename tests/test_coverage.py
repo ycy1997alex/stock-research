@@ -1,7 +1,6 @@
 """Technical and future fundamental coverage remain separate in research."""
 import datetime as dt
 
-from barometer.render.page import render
 from research.domain import scoring_stock
 from research.render import page as rpage
 
@@ -15,11 +14,7 @@ def test_short_history_renormalizes_score_and_marks_low_technical_coverage():
     tabs = rpage.build_tabs(
         {"SPCX": ([(dt.date(2026, 9, 18), score)],
                   {"weighted_average": score.overall})})
-    row = next(row for tab in tabs for row in tab.rows if row.label.startswith("SPCX"))
-    assert row.coverage.available == 1
-    assert row.coverage.expected == 3
-    assert row.fundamental_coverage.expected == 0
-    html = render(tabs, "research")
+    html = rpage.render_page(tabs, title="research", tagline="", last_run_at=None)
     assert "低涵蓋・降級" in html
     assert "技術面 1/3 項（33%）" in html
     assert "基本面：尚未接入" in html

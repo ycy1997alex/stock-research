@@ -2,8 +2,7 @@
 
 `stock-research` 的**介面架構文件**。給要動這份程式碼的人看。
 
-> **先讀 `../market-barometer/UI_README.md`。** 渲染、加密、解鎖畫面全部沿用那一側，
-> 這份只寫不一樣的地方。
+> **先讀 `../market-barometer/UI_README.md`。** 頁面骨架、加密、解鎖畫面沿用那一側；網頁分頁裡的內容由這一側自己畫（`render/sections.py`）。這份只寫不一樣的地方。
 
 ---
 
@@ -13,7 +12,7 @@
 |---|---|---|
 | 桌面 TTK 視窗 | 有（`app/`） | 有（`app/`，2026-09-08 追加） |
 | 網頁 | 有 | 有 |
-| 分頁 | 4（總經×2、大盤×2） | **2**（台股權值股 / 美股權值股） |
+| 分頁 | 4（總經×2、大盤×2） | 網頁 **9**，分三組（評分／台股本地／基本面）；桌面 **2**（台股權值股 / 美股權值股） |
 | 鎖 | 一層（Password） | **兩層**（Key × 2 配 Password × 2） |
 | 買賣建議 | `enforce_lint=True` 擋著，一個字都不能有 | `enforce_lint=False`，**可以有** |
 | 更新按鈕 | 「強制重抓」，**會打網路** | 「重新載入」，**不打網路** |
@@ -37,7 +36,8 @@ flowchart TD
         V["app/views/dashboard.py<br/>StockDashboardWindow"]
         PR["app/presenters/dashboard.py<br/>StockPresenter"]
         ROOT["app/main.py<br/>組裝根"]
-        RP["render/page.py<br/>build_tabs / _stock_row"]
+        RP["render/page.py<br/>build_tabs / render_page"]
+        RS["render/sections.py<br/>stock_body / local_matrix<br/>fundamental_matrix / STYLE / SCRIPT"]
         SS["domain/scoring_stock.py<br/>score_short / score_mid<br/>score_long / score_chips_term"]
         CH["datasources/chips_tw.py"]
         RUN["pipeline/run_stock_scores.py<br/>score_series / summarize_window"]
@@ -58,6 +58,7 @@ flowchart TD
     end
 
     RP --> BR
+    RP --> RS
     RUN --> SS
     RUN --> WT
     RUN --> ST
@@ -119,20 +120,23 @@ flowchart TD
 | 畫面元素 | 實作位置 | 說明 |
 |---|---|---|
 | 兩道解鎖畫面 | `barometer/crypto/shell.html`（借用），`tools/publish.py` 包兩層 | 外層 Key 解開後，裡面還是一份密文，再用 Password 解 |
-| 頁面骨架 | `barometer/render/page.py` → `render(enforce_lint=False)` | **`False` 是這一側唯一的行為差異** |
-| 分頁組裝 | `src/research/render/page.py` → `build_tabs()` | 回傳 2 個 `Tab` |
-| 一列個股 | `src/research/render/page.py` → `_stock_row()` | 短／中／長三期 + 籌碼面 |
+| 頁面骨架 | `barometer/render/page.py` → `render()`，經由 `src/research/render/page.py` → `render_page()` 呼叫 | 標頭、「最後一次抓取」、兩層導覽、頁尾都由那一支產生；這一側傳 `enforce_lint=False` 加自己的 `extra_style`／`extra_script` |
+| 分頁組裝 | `src/research/render/page.py` → `build_tabs()` | 回傳 9 個 `Tab`，分三組（評分／台股本地／基本面），內容放在 `Tab.body` |
+| 一檔一列 | `src/research/render/sections.py` → `stock_body()` | 摘要列（兩種分數、三期＋籌碼、五日走勢、資料日期）＋預設收合的明細列（各指標、本地維度、來源與但書） |
+| 台股本地 | `sections.py` → `local_matrix()`／`revenue_table()` | 個股 × 維度矩陣；漲跌家數是全市場一筆，只列一次 |
+| 基本面 | `sections.py` → `fundamental_matrix()`／`theses_table()` | 標的 × 指標，依台股／美股／ADR 分組 |
+| 樣式與互動 | `sections.py` → `STYLE`／`SCRIPT` | 紅漲綠跌；展開／收合；分數與指標欄可排序，第三下回到設定順序 |
 | 台股說明段 | `TW_INTRO` | 顯示單位「張」 |
-| 美股說明段 | `US_INTRO` | 顯示單位「股」，並說明沒有三大法人資料 |
+| 美股說明段 | `_us_intro()` | 顯示單位「股」與台股／ADR 對照組；籌碼欄不存在，表頭直接註明 |
 | 頁尾免責 | `FOOTER` | 每一頁都掛「不構成投資建議」 |
-| 「資料不足」 | `domain/scoring_stock.py` → `INSUFFICIENT` | **不是 0 分，是一個字串**，走不同的渲染分支 |
-| 薄流動性但書 | `config.py` → `THIN_LIQUIDITY` | 命中的標的照算，但列上掛註記 |
+| 「資料不足」 | `domain/scoring_stock.py` → `INSUFFICIENT` | **不是 0 分，是一個字串**，畫成虛線框，不進平均 |
+| 薄流動性但書 | `config.py` → `THIN_LIQUIDITY` | 命中的標的照算，但列上掛「薄流動性」標籤 |
 
 </details>
 
 ---
 
-## 4. 四個 UI 決策，與它們的理由
+## 4. 五個 UI 決策，與它們的理由
 
 <details>
 <summary><b>一、「資料不足」必須看得出來，不能長得像分數（點開）</b></summary>
@@ -147,7 +151,7 @@ flowchart TD
 ```
 scoring_stock.score_mid(closes)  → TermScore(score=INSUFFICIENT, ...)
                                     ↑ 字串 "資料不足"，不是 0.0
-render._stock_row()              → 走不同分支，顯示灰字，不進平均
+sections._cell()                 → 畫成虛線框「資料不足」，不進平均
 ```
 
 **這是介面決策，不只是資料決策。** 分數與「沒有分數」在畫面上必須是兩種東西。
@@ -197,6 +201,17 @@ render._stock_row()              → 走不同分支，顯示灰字，不進平�
 **沒有慢操作就不要有併發。** 丟到執行緒裡只是多一層會出錯的地方。
 保留的是關窗處理：`after` 的 id 要記下來、關窗時全部取消，
 少了這步關窗後那些 callback 會炸 `invalid command name`。
+
+</details>
+
+<details>
+<summary><b>五、網頁的摘要列只放摘要，明細收合（2026-10-03 改版，點開）</b></summary>
+
+改版前，網頁沿用 market-barometer 的指標表格：每一列的說明全部塞進第一欄。指標表的說明一兩句話沒事，個股的說明卻有約 1,270 字（十五個指標、八個本地維度、來源與但書），第一欄只分到 101px，台股分頁每一列高 2,678px，整頁 13,892px。分數與日期因為垂直置中，落在離標的名稱一千多 px 的地方，五檔根本沒辦法放在一起比。
+
+改版後一檔一列，台股列高約 83px（美股多一行本地資料註記，約 100px），台股分頁整頁約 1,000px，五檔第一屏看完；細節進預設收合的明細列，分成短中長三欄、本地維度、來源與但書。`tests/render/test_redesign_page.py` 守著「摘要列不得出現指標細節」，不靠自律。
+
+骨架仍然共用：market-barometer 的 `render()` 只多了 opt-in 的 `Tab.group`、`Tab.body`、`extra_style`／`extra_script`，那一側自己一個都不傳，明文逐字不變（那邊的 `tests/test_page_render_hooks.py` 用 golden 檔守著）。**`Tab.body` 會原樣插進頁面，跳脫由這一側負責** —— 台股名稱是從 TWSE 抓回來的。
 
 </details>
 
@@ -277,8 +292,9 @@ spec 開頭有一段檢查，找不到隔壁 repo 就直接讓 build 失敗，
 
 ```
 tools/publish.py
-   → run_stock_scores 的結果 → build_tabs()      ← 2 個分頁
-   → barometer.render.page.render(enforce_lint=False)
+   → run_stock_scores 的結果 → build_tabs()      ← 9 個分頁，分三組
+   → render_page() → barometer.render.page.render(enforce_lint=False,
+                                                   extra_style, extra_script)
    → publish_gate.should_publish(明文)            ← 比對明文指紋，不是密文
         └ 沒變 → 結束，docs/ 一個字都不動
    → seal() 內層（Password × 2）
@@ -316,7 +332,8 @@ Password 會印在文章上給讀者，而那一組**不是**這邊的 Key —�
 <summary><b>做得到</b></summary>
 
 - **兩個介面**：桌面程式（`.exe`）與加密網頁，同一份分數
-- 兩個分頁顯示 15 檔標的的短／中／長三期評分
+- 網頁分三組共 9 個分頁（評分／台股本地／基本面）；15 檔一檔一列，明細點開才展開
+- 桌面程式兩個分頁顯示 15 檔標的的短／中／長三期評分
 - 台股多一個籌碼面維度
 - 五日加權（權重與大盤共用同一組）
 - 資料不足的格子顯示成「資料不足」而不是 0 分

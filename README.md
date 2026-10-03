@@ -45,7 +45,8 @@ src/research/
 ├─ pipeline/
 │  └─ run_stock_scores.py       ← 逐日回算 + 五日加權（權重與大盤共用）
 ├─ render/
-│  └─ page.py                   ← 兩個分頁：台股權值股 / 美股權值股
+│  ├─ page.py                   ← 分頁組裝（評分／台股本地／基本面三組）＋ render_page()
+│  └─ sections.py               ← 分頁內容：一檔一列的評分表、本地維度與基本面矩陣、CSS／JS
 └─ app/                         ← 桌面 TTK（唯讀顯示，不打網路）
    ├─ presenters/dashboard.py   ← StockPresenter
    ├─ views/dashboard.py        ← StockDashboardWindow
@@ -63,11 +64,11 @@ packaging/research.spec          ← PyInstaller onefile
 Domain 層一樣是純規則、零 I/O；表現層一樣不得 import storage ——
 `tests/test_layer_boundary.py` 用 AST 掃描守著，不靠自律。
 
-**加密、渲染、五日加權全部沿用 `market-barometer`**，這一側只換一組標的與
-一套評分。兩個站用同一套機制是刻意的 —— 各寫一份的話，改一邊就會忘記另一邊。
+**加密、頁面骨架、五日加權全部沿用 `market-barometer`**，這一側只換一組標的、一套評分，以及網頁分頁裡的內容。兩個站用同一套機制是刻意的 —— 各寫一份的話，改一邊就會忘記另一邊。
 
-與 market-barometer 唯一的行為差異是 `enforce_lint=False`：這個 repo
-**可以**有買賣與短中長線建議，那條線畫在內容本身，不畫在鎖上。
+頁面骨架（標頭、「最後一次抓取」、兩層導覽、頁尾免責）由 market-barometer 的 `render()` 產生；分頁內容由 `render/sections.py` 畫好、透過 `Tab.body` 交給它。那邊的擴充點全部是 opt-in，market-barometer 自己不用，明文逐字不變（那邊有 golden 測試守著）。
+
+與 market-barometer 在內容上的差異是 `enforce_lint=False`：這個 repo **可以**有買賣與短中長線建議，那條線畫在內容本身，不畫在鎖上。
 
 ### 對照組設計
 
@@ -161,7 +162,7 @@ Password 有字串重疊，這是刻意的 —— 那邊只有一組 Password �
 
 | 套件 | 用途 |
 |---|---|
-| `barometer` | 管線核心（`pip install -e ../market-barometer`）：資料層、加密、渲染、五日加權全部來自它 |
+| `barometer` | 管線核心（`pip install -e ../market-barometer`）：資料層、加密、頁面骨架、五日加權全部來自它 |
 | `pytest` | 測試（`[dev]`） |
 
 **這個 repo 刻意沒有自己的資料源與加密實作。** 兩個站用同一套機制，各寫一份

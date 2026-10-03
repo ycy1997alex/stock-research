@@ -1,8 +1,14 @@
 import datetime as dt
+import re
 
 from research import config
 from research.domain.fundamentals import FundamentalReport, Metric, QuarterMetrics
 from research.render import page
+
+
+def _row(body: str, symbol: str) -> str:
+    return next(chunk for chunk in body.split("<tr")
+                if f'class="sym">{symbol}<' in chunk)
 
 
 def test_four_group_tables_and_rule_theses_show_all_15_symbols_with_coverage():
@@ -20,19 +26,19 @@ def test_four_group_tables_and_rule_theses_show_all_15_symbols_with_coverage():
     assert set(groups) == {"fundamental_valuation", "fundamental_profitability",
                            "fundamental_growth", "fundamental_structure",
                            "fundamental_theses"}
-    assert all(len(tab.rows) == 15 for tab in groups.values())
+    assert all(len(re.findall(r'<th scope="row">', tab.body)) == 15 for tab in groups.values())
     valuation = groups["fundamental_valuation"]
-    tw = next(row for row in valuation.rows if row.label.startswith("2330.TW"))
-    spcx = next(row for row in valuation.rows if row.label.startswith("SPCX"))
-    assert "本益比 21" in tw.value
-    assert tw.fundamental_coverage.available == 3
-    assert spcx.value is None
-    assert spcx.fundamental_coverage.available == 0
-    assert spcx.fundamental_coverage.expected == 11
-    assert "資料不足" in spcx.note
+    tw = _row(valuation.body, "2330.TW")
+    spcx = _row(valuation.body, "SPCX")
+    assert ">21.00<" in tw
+    assert "基本面 3/11 項（27%）" in tw
+    assert "資料不足：本益比" in spcx
+    assert "基本面 0/11 項（0%）" in spcx
     assert "資料來自公開財報摘要，口徑可能與正式財報不同" in valuation.intro
-    thesis = next(row for row in groups["fundamental_theses"].rows
-                  if row.label.startswith("2330.TW"))
-    assert "毛利率連三季上升" in thesis.note
-    assert "營收較去年同期增加" in thesis.note
-    assert all(word not in thesis.note for word in ("目標價", "催化劑", "信心水準"))
+    assert "2026Q2" in _row(groups["fundamental_profitability"].body, "2330.TW")
+    theses = groups["fundamental_theses"].body
+    thesis = _row(theses, "2330.TW")
+    assert "毛利率連三季上升" in thesis
+    assert "營收較去年同期增加" in thesis
+    assert "資料不足" in _row(theses, "SPCX")
+    assert all(word not in theses for word in ("目標價", "催化劑", "信心水準"))

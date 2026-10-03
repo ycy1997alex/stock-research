@@ -38,7 +38,6 @@ from barometer.crypto import credentials, envelope, shell  # noqa: E402
 from barometer.domain import windows  # noqa: E402
 from barometer.pipeline import publish_gate  # noqa: E402
 from barometer.pipeline import build_page  # noqa: E402
-from barometer.render import page as base_page  # noqa: E402
 from barometer.storage import csv_audit  # noqa: E402
 from barometer.storage.sqlite_repo import SqliteRepo  # noqa: E402
 
@@ -203,12 +202,9 @@ def main(argv: list[str]) -> int:
         local_meta_by_symbol=local_meta_by_symbol,
         fundamentals_by_symbol=fundamentals_by_symbol,
     )
-    # enforce_lint=False：這一側可以有建議（§2.1）
-    html = base_page.render(
-        tabs, title=TITLE, tagline=TAGLINE,
-        footer_notes=rpage.FOOTER, enforce_lint=False,
-        last_run_at=build_page.last_fetch_at(),
-    )
+    # enforce_lint=False：這一側可以有建議（§2.1）—— 由 render_page() 統一帶
+    html = rpage.render_page(tabs, title=TITLE, tagline=TAGLINE,
+                             last_run_at=build_page.last_fetch_at())
 
     plain_path = config.build_dir() / "stock-research.plain.html"
     plain_path.write_text(html, encoding="utf-8")
